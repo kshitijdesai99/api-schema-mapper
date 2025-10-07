@@ -1,0 +1,25 @@
+# Test files
+test/
+coverage/
+*.test.js
+
+# Examples
+examples/
+
+# Documentation
+READMEforDummies.md
+PUBLISHING.md
+
+# Development files
+.git/
+.gitignore
+.DS_Store
+
+# Node
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

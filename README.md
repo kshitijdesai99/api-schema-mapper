@@ -566,7 +566,7 @@ A: Yes, though it's primarily designed for REST APIs.
 
 ## Support
 
-- [GitHub Issues](https://github.com/yourusername/api-schema-mapper/issues)
+- [GitHub Issues](https://github.com/kshitijdesai99/api-schema-mapper/issues)
 - [Stack Overflow](https://stackoverflow.com/questions/tagged/api-schema-mapper)
 
 ---

@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/package.json",
   "name": "api-schema-mapper",
   "version": "1.0.0",
   "description": "A lightweight library for mapping between inconsistent GET/POST/PATCH API schemas and managing form state transformations",
@@ -22,16 +23,16 @@
     "transformation",
     "mapping"
   ],
-  "author": "",
+  "author": "Kshitij Desai <kshitijdesai99@gmail.com>",
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/api-schema-mapper.git"
+    "url": "https://github.com/kshitijdesai99/api-schema-mapper.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/api-schema-mapper/issues"
+    "url": "https://github.com/kshitijdesai99/api-schema-mapper/issues"
   },
-  "homepage": "https://github.com/yourusername/api-schema-mapper#readme",
+  "homepage": "https://github.com/kshitijdesai99/api-schema-mapper#readme",
   "engines": {
     "node": ">=12.0.0"
   },
