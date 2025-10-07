@@ -1,16 +1,56 @@
 {
-  "$schema": "https://json.schemastore.org/package.json",
-  "name": "js-library",
+  "name": "api-schema-mapper",
   "version": "1.0.0",
-  "description": "",
+  "description": "A lightweight library for mapping between inconsistent GET/POST/PATCH API schemas and managing form state transformations",
   "main": "src/index.js",
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "example": "node examples/basic-usage.js"
   },
-  "keywords": [],
+  "keywords": [
+    "api",
+    "schema",
+    "mapper",
+    "form",
+    "rest",
+    "normalization",
+    "denormalization",
+    "diff",
+    "patch",
+    "transformation",
+    "mapping"
+  ],
   "author": "",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/api-schema-mapper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/api-schema-mapper/issues"
+  },
+  "homepage": "https://github.com/yourusername/api-schema-mapper#readme",
+  "engines": {
+    "node": ">=12.0.0"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
   "devDependencies": {
     "jest": "^30.2.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "coverageDirectory": "coverage",
+    "collectCoverageFrom": [
+      "src/**/*.js"
+    ],
+    "testMatch": [
+      "**/test/**/*.test.js"
+    ]
   }
 }

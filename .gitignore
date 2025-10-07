@@ -1,33 +1,35 @@
 # Dependencies
 node_modules/
+package-lock.json
+yarn.lock
 
-# Coverage
+# Testing
 coverage/
+.nyc_output/
+*.log
 
 # Build outputs
 dist/
 build/
-
-# Environment variables
-.env
-.env.local
-
-# OS files
-.DS_Store
-Thumbs.db
+*.tgz
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# OS
+.DS_Store
+Thumbs.db
 
-# Temporary files
+# Environment
+.env
+.env.local
+.env.test
+
+# Misc
+*.bak
 *.tmp
 .cache/
