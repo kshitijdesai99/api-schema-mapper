@@ -1,57 +1,45 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "api-schema-mapper",
-  "version": "1.0.0",
-  "description": "A lightweight library for mapping between inconsistent GET/POST/PATCH API schemas and managing form state transformations",
-  "main": "src/index.js",
+  "version": "2.0.0",
+  "description": "Predictable bidirectional mapping between API payloads and form state",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.cjs" },
+    "./react": { "types": "./dist/react.d.ts", "import": "./dist/react.js", "require": "./dist/react.cjs" },
+    "./zod": { "types": "./dist/zod.d.ts", "import": "./dist/zod.js", "require": "./dist/zod.cjs" },
+    "./valibot": { "types": "./dist/valibot.d.ts", "import": "./dist/valibot.js", "require": "./dist/valibot.cjs" }
+  },
   "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "npm run build",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "example": "node examples/basic-usage.js"
+    "test:coverage": "jest --coverage --runInBand",
+    "test:package": "node scripts/test-package.js",
+    "typecheck": "tsc --noEmit --allowJs false --skipLibCheck index.d.ts test/types.test.ts",
+    "benchmark": "node benchmark/index.js",
+    "example": "node examples/basic-usage.js",
+    "check": "npm run test:coverage && npm run typecheck && npm run test:package"
   },
-  "keywords": [
-    "api",
-    "schema",
-    "mapper",
-    "form",
-    "rest",
-    "normalization",
-    "denormalization",
-    "diff",
-    "patch",
-    "transformation",
-    "mapping"
-  ],
+  "keywords": ["api", "schema", "mapper", "form", "rest", "normalization", "patch", "typescript"],
   "author": "Kshitij Desai <kshitijdesai99@gmail.com>",
   "license": "ISC",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/kshitijdesai99/api-schema-mapper.git"
-  },
-  "bugs": {
-    "url": "https://github.com/kshitijdesai99/api-schema-mapper/issues"
-  },
+  "repository": { "type": "git", "url": "https://github.com/kshitijdesai99/api-schema-mapper.git" },
+  "bugs": { "url": "https://github.com/kshitijdesai99/api-schema-mapper/issues" },
   "homepage": "https://github.com/kshitijdesai99/api-schema-mapper#readme",
-  "engines": {
-    "node": ">=12.0.0"
-  },
-  "files": [
-    "src/",
-    "README.md",
-    "LICENSE"
-  ],
-  "devDependencies": {
-    "jest": "^30.2.0"
-  },
+  "engines": { "node": ">=20.0.0" },
+  "files": ["dist/", "README.md", "LICENSE"],
+  "peerDependencies": { "react": ">=18" },
+  "peerDependenciesMeta": { "react": { "optional": true } },
+  "devDependencies": { "@types/node": "^24.0.0", "jest": "^30.2.0", "typescript": "^5.9.0" },
   "jest": {
     "testEnvironment": "node",
     "coverageDirectory": "coverage",
-    "collectCoverageFrom": [
-      "src/**/*.js"
-    ],
-    "testMatch": [
-      "**/test/**/*.test.js"
-    ]
+    "collectCoverageFrom": ["src/**/*.js", "!src/react.js"],
+    "testMatch": ["**/test/**/*.test.js"],
+    "coverageThreshold": { "global": { "branches": 90, "functions": 90, "lines": 90, "statements": 90 } }
   }
 }

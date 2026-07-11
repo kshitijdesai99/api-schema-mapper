@@ -1,118 +1,81 @@
-/**
- * Denormalizer - Transform form schema to API payload
- */
+'use strict';
 
-const { isPlainObject, getNestedValue, setNestedValue, invertMapping } = require('./utils');
+const { MapperTransformError } = require('./errors');
+const { deepClone, getNestedValue, invertMapping, isPlainObject, setNestedValue } = require('./utils');
 
-/**
- * Denormalize form data to API payload using mapping
- * @param {Object} formData - Form state data
- * @param {Object} mapping - API to form field mapping (will be inverted)
- * @param {Object} options - Transformation options
- * @returns {Object} API payload
- */
+function applyToApi(transform, value, source, details) {
+  const fn = typeof transform === 'function' ? transform : transform && transform.toApi;
+  if (!fn) return value;
+  try { return fn(value, source); } catch (cause) {
+    throw new MapperTransformError(`toApi transform failed for field "${details.formPath}"`, { ...details, operation: details.operation || 'denormalize', value, cause });
+  }
+}
+
+function denormalizeDirect(formData, formToApi, options = {}) {
+  const { omitUndefined = true, omitNull = false, transform = {}, transforms = transform, operation = 'denormalize' } = options;
+  const payload = {};
+
+  function process(source, schema, target) {
+    for (const formKey of Object.keys(schema)) {
+      const mappingValue = schema[formKey];
+      const sourceValue = getNestedValue(source, formKey);
+      if (typeof mappingValue === 'string') {
+        let value = sourceValue;
+        if (value === undefined && omitUndefined) continue;
+        if (value === null && omitNull) continue;
+        value = applyToApi(transforms[formKey], value, source, { formPath: formKey, apiPath: mappingValue, operation });
+        setNestedValue(target, mappingValue, deepClone(value));
+      } else if (Array.isArray(mappingValue)) {
+        if (sourceValue === undefined && omitUndefined) continue;
+        if (sourceValue === null) {
+          if (!omitNull) setNestedValue(target, formKey, null);
+          continue;
+        }
+        if (!Array.isArray(sourceValue)) {
+          setNestedValue(target, formKey, deepClone(sourceValue));
+          continue;
+        }
+        const itemMapping = mappingValue[0];
+        const values = sourceValue.map(item => {
+          if (isPlainObject(itemMapping) && isPlainObject(item)) {
+            const apiItem = {};
+            process(item, itemMapping, apiItem);
+            return apiItem;
+          }
+          if (Array.isArray(itemMapping) && Array.isArray(item)) {
+            const wrapper = {};
+            process({ value: item }, { value: itemMapping }, wrapper);
+            return wrapper.value;
+          }
+          return deepClone(item);
+        });
+        setNestedValue(target, formKey, values);
+      } else if (isPlainObject(mappingValue)) {
+        const nestedTarget = {};
+        process(sourceValue || source, mappingValue, nestedTarget);
+        if (Object.keys(nestedTarget).length) setNestedValue(target, formKey, nestedTarget);
+      }
+    }
+  }
+  process(formData, formToApi, payload);
+  return payload;
+}
+
 function denormalize(formData, mapping, options = {}) {
-  const {
-    omitUndefined = true,
-    omitNull = false,
-    transform = {}
-  } = options;
-
-  // Invert the mapping: form -> api
-  const formToApi = invertMapping(mapping);
-  const apiPayload = {};
-
-  function processFormData(source, invertedMapping) {
-    for (const formKey in invertedMapping) {
-      if (!invertedMapping.hasOwnProperty(formKey)) continue;
-
-      const apiPath = invertedMapping[formKey];
-      let value = getNestedValue(source, formKey);
-
-      // Skip undefined/null based on options
-      if (omitUndefined && value === undefined) continue;
-      if (omitNull && value === null) continue;
-
-      // Apply custom transform if provided
-      const transformKey = formKey;
-      if (transform[transformKey]) {
-        value = transform[transformKey](value, source);
-      }
-
-      // Handle nested paths in API (e.g., 'contact.email_address')
-      if (apiPath.includes('.')) {
-        setNestedValue(apiPayload, apiPath, value);
-      } else {
-        apiPayload[apiPath] = value;
-      }
-    }
-  }
-
-  processFormData(formData, formToApi);
-
-  return apiPayload;
+  const direct = options.mappingIsFormToApi ? mapping : invertMapping(mapping);
+  return denormalizeDirect(formData, direct, options);
 }
 
-/**
- * Denormalize with explicit form-to-api mapping
- * @param {Object} formData - Form data
- * @param {Object} formToApiMapping - Direct form->api mapping
- * @returns {Object} API payload
- */
 function denormalizeFlat(formData, formToApiMapping, options = {}) {
-  const {
-    omitUndefined = true,
-    omitNull = false
-  } = options;
-
-  const apiPayload = {};
-
-  for (const formPath in formToApiMapping) {
-    if (!formToApiMapping.hasOwnProperty(formPath)) continue;
-
-    const apiPath = formToApiMapping[formPath];
-    const value = getNestedValue(formData, formPath);
-
-    if (omitUndefined && value === undefined) continue;
-    if (omitNull && value === null) continue;
-
-    if (apiPath.includes('.')) {
-      setNestedValue(apiPayload, apiPath, value);
-    } else {
-      apiPayload[apiPath] = value;
-    }
-  }
-
-  return apiPayload;
+  return denormalizeDirect(formData, formToApiMapping, options);
 }
 
-/**
- * Transform form data for POST request
- * Includes all fields with defaults
- */
 function denormalizeForPost(formData, mapping, options = {}) {
-  return denormalize(formData, mapping, {
-    ...options,
-    omitUndefined: false,
-    omitNull: false
-  });
+  return denormalize(formData, mapping, { omitUndefined: false, omitNull: false, ...options, operation: 'post' });
 }
 
-/**
- * Transform form data for PATCH request
- * Only includes changed fields (non-undefined)
- */
 function denormalizeForPatch(formData, mapping, options = {}) {
-  return denormalize(formData, mapping, {
-    ...options,
-    omitUndefined: true,
-    omitNull: false
-  });
+  return denormalize(formData, mapping, { omitUndefined: true, omitNull: false, ...options, operation: 'patch' });
 }
 
-module.exports = {
-  denormalize,
-  denormalizeFlat,
-  denormalizeForPost,
-  denormalizeForPatch
-};
+module.exports = { denormalize, denormalizeDirect, denormalizeFlat, denormalizeForPost, denormalizeForPatch };

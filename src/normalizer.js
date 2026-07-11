@@ -1,131 +1,94 @@
-/**
- * Normalizer - Transform API data to form schema
- */
+'use strict';
 
-const { isPlainObject, getNestedValue, setNestedValue } = require('./utils');
+const { MapperTransformError } = require('./errors');
+const { deepClone, getNestedValue, isPlainObject, setNestedValue } = require('./utils');
 
-/**
- * Normalize API data to form schema using mapping
- * @param {Object} apiData - Raw API response data
- * @param {Object} mapping - API to form field mapping
- * @param {Object} options - Transformation options
- * @returns {Object} Normalized form data
- */
+function coerceType(value, type, field = '') {
+  if (typeof type === 'function') {
+    try { return type(value); } catch (cause) {
+      throw new MapperTransformError(`Could not coerce field "${field}"`, { operation: 'normalize', formPath: field, value, cause });
+    }
+  }
+  if (type === 'number') {
+    if ((typeof value !== 'string' && typeof value !== 'number') || value === '' || !Number.isFinite(Number(value))) {
+      throw new MapperTransformError(`Could not convert field "${field}" value "${String(value)}" to number`, { operation: 'normalize', formPath: field, value });
+    }
+    return Number(value);
+  }
+  if (type === 'boolean') {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    throw new MapperTransformError(`Could not convert field "${field}" value "${String(value)}" to boolean`, { operation: 'normalize', formPath: field, value });
+  }
+  if (type === 'date') {
+    const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+    if (Number.isNaN(date.getTime())) throw new MapperTransformError(`Could not convert field "${field}" value "${String(value)}" to date`, { operation: 'normalize', formPath: field, value });
+    return date;
+  }
+  if (type === 'string') return String(value);
+  throw new MapperTransformError(`Unknown coercion "${String(type)}" for field "${field}"`, { operation: 'normalize', formPath: field, value });
+}
+
+function applyFromApi(transform, value, source, details) {
+  const fn = typeof transform === 'function' ? transform : transform && transform.fromApi;
+  if (!fn) return value;
+  try { return fn(value, source); } catch (cause) {
+    throw new MapperTransformError(`fromApi transform failed for field "${details.formPath}"`, { ...details, operation: 'normalize', value, cause });
+  }
+}
+
 function normalize(apiData, mapping, options = {}) {
-  const {
-    typeCoercion = true,
-    defaultValues = {},
-    transform = {}
-  } = options;
+  const { defaultValues = {}, transform = {}, transforms = transform, coerce = {}, typeCoercion = false } = options;
+  const formData = deepClone(defaultValues);
 
-  const formData = { ...defaultValues };
-
-  function processMapping(source, mappingSchema, targetPath = '') {
-    for (const apiKey in mappingSchema) {
-      if (!mappingSchema.hasOwnProperty(apiKey)) continue;
-
-      const mappingValue = mappingSchema[apiKey];
-      const sourceValue = source?.[apiKey];
-
+  function process(source, schema, target) {
+    for (const apiKey of Object.keys(schema)) {
+      const mappingValue = schema[apiKey];
+      const sourceValue = getNestedValue(source, apiKey);
       if (typeof mappingValue === 'string') {
-        // Simple mapping: api_field -> formField
-        const formKey = mappingValue;
-        let value = sourceValue;
-
-        // Apply custom transform if provided
-        if (transform[formKey]) {
-          value = transform[formKey](value, source);
+        const formPath = mappingValue;
+        let value = applyFromApi(transforms[formPath], sourceValue, source, { formPath, apiPath: apiKey });
+        const coercion = coerce[formPath];
+        if (coercion && value !== null && value !== undefined) value = coerceType(value, coercion, formPath);
+        // typeCoercion is retained as an option but deliberately performs no unsafe guessing.
+        if (value !== undefined) setNestedValue(target, formPath, deepClone(value));
+      } else if (Array.isArray(mappingValue)) {
+        if (sourceValue === undefined) continue;
+        if (!Array.isArray(sourceValue)) {
+          setNestedValue(target, apiKey, deepClone(sourceValue));
+          continue;
         }
-
-        // Type coercion
-        if (typeCoercion && value !== null && value !== undefined) {
-          value = coerceType(value);
-        }
-
-        // Only set if value is not undefined, to preserve defaults
-        if (value !== undefined) {
-          setNestedValue(formData, formKey, value);
-        }
-
-      } else if (isPlainObject(mappingValue)) {
-        // Nested mapping: { contact: { email_address: 'email' } }
-        if (isPlainObject(sourceValue)) {
-          processMapping(sourceValue, mappingValue, apiKey);
-        }
-      } else if (Array.isArray(mappingValue) && Array.isArray(sourceValue)) {
-        // Array mapping
-        const [itemMapping] = mappingValue;
-        const formKey = apiKey;
-        
-        formData[formKey] = sourceValue.map(item => {
-          if (isPlainObject(itemMapping)) {
-            const normalized = {};
-            processMapping(item, itemMapping);
-            return normalized;
+        const itemMapping = mappingValue[0];
+        const values = sourceValue.map(item => {
+          if (isPlainObject(itemMapping) && isPlainObject(item)) {
+            const normalizedItem = {};
+            process(item, itemMapping, normalizedItem);
+            return normalizedItem;
           }
-          return item;
+          if (Array.isArray(itemMapping) && Array.isArray(item)) {
+            const wrapper = {};
+            process({ value: item }, { value: itemMapping }, wrapper);
+            return wrapper.value;
+          }
+          return deepClone(item);
         });
+        setNestedValue(target, apiKey, values);
+      } else if (isPlainObject(mappingValue) && isPlainObject(sourceValue)) {
+        process(sourceValue, mappingValue, target);
       }
     }
   }
-
-  processMapping(apiData, mapping);
-
+  process(apiData, mapping, formData);
   return formData;
 }
 
-/**
- * Coerce values to appropriate types
- */
-function coerceType(value) {
-  // String to number
-  if (typeof value === 'string' && !isNaN(value) && value.trim() !== '') {
-    const num = Number(value);
-    if (Number.isFinite(num)) {
-      return num;
-    }
-  }
-
-  // String to boolean
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-
-  // ISO date string to Date
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
-    const date = new Date(value);
-    if (!isNaN(date.getTime())) {
-      return date;
-    }
-  }
-
-  return value;
-}
-
-/**
- * Normalize with flattened mapping (for simpler use cases)
- * @param {Object} apiData - API response
- * @param {Object} flatMapping - Flat key-value mapping
- * @returns {Object} Form data
- */
-function normalizeFlat(apiData, flatMapping) {
-  const formData = {};
-
-  for (const apiPath in flatMapping) {
-    if (!flatMapping.hasOwnProperty(apiPath)) continue;
-
-    const formPath = flatMapping[apiPath];
+function normalizeFlat(apiData, flatMapping, options = {}) {
+  const output = {};
+  for (const apiPath of Object.keys(flatMapping)) {
     const value = getNestedValue(apiData, apiPath);
-
-    if (value !== undefined) {
-      setNestedValue(formData, formPath, value);
-    }
+    if (value !== undefined) setNestedValue(output, flatMapping[apiPath], deepClone(value));
   }
-
-  return formData;
+  return output;
 }
 
-module.exports = {
-  normalize,
-  normalizeFlat,
-  coerceType
-};
+module.exports = { normalize, normalizeFlat, coerceType };

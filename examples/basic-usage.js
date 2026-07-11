@@ -114,7 +114,9 @@ const postMapper = new Mapper({
   apiToForm: {
     user_name: 'username',
     email_address: 'email',
-    password_hash: 'password'
+    password_hash: 'password',
+    role: 'role',
+    status: 'status'
   },
   defaults: {
     role: 'user',

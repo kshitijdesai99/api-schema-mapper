@@ -1,206 +1,77 @@
-/**
- * Differ - Compute minimal differences between objects
- */
+'use strict';
 
-const { isPlainObject, deepClone } = require('./utils');
+const { deepClone, isPlainObject, setNestedValue } = require('./utils');
 
-/**
- * Compute diff between two objects
- * @param {Object} original - Original state
- * @param {Object} current - Current state
- * @param {Object} options - Diff options
- * @returns {Object} Object containing only changed fields
- */
+function isEqual(first, second, seen = new WeakMap()) {
+  if (Object.is(first, second)) return true;
+  if (first instanceof Date || second instanceof Date) {
+    return first instanceof Date && second instanceof Date && first.getTime() === second.getTime();
+  }
+  if (first === null || second === null || typeof first !== 'object' || typeof second !== 'object') return false;
+  if (Array.isArray(first) !== Array.isArray(second)) return false;
+  if (!Array.isArray(first) && (!isPlainObject(first) || !isPlainObject(second))) return false;
+  if (seen.get(first) === second) return true;
+  seen.set(first, second);
+  const firstKeys = Object.keys(first);
+  const secondKeys = Object.keys(second);
+  if (firstKeys.length !== secondKeys.length) return false;
+  return firstKeys.every(key => Object.prototype.hasOwnProperty.call(second, key) && isEqual(first[key], second[key], seen));
+}
+
 function diff(original, current, options = {}) {
-  const {
-    compareArrays = true,
-    deep = true,
-    ignoreFields = []
-  } = options;
-
+  const { deep = true, ignoreFields = [], deletedValue = undefined } = options;
+  const ignored = new Set(ignoreFields);
   const changes = {};
 
-  function computeDiff(oldVal, newVal, path = '') {
-    // Skip ignored fields
-    if (ignoreFields.includes(path)) {
-      return;
-    }
-
-    // Both undefined/null - no change
-    if (oldVal === newVal) {
-      return;
-    }
-
-    // Type changed
-    if (typeof oldVal !== typeof newVal) {
-      setChangePath(changes, path, newVal);
-      return;
-    }
-
-    // Primitive value changed
-    if (typeof newVal !== 'object' || newVal === null) {
-      if (oldVal !== newVal) {
-        setChangePath(changes, path, newVal);
+  function walk(oldValue, newValue, path) {
+    if (ignored.has(path) || isEqual(oldValue, newValue)) return;
+    if (!path && isPlainObject(oldValue) && isPlainObject(newValue)) {
+      const keys = new Set([...Object.keys(oldValue), ...Object.keys(newValue)]);
+      for (const key of keys) {
+        if (!Object.prototype.hasOwnProperty.call(newValue, key)) setNestedValue(changes, key, deletedValue);
+        else walk(oldValue[key], newValue[key], key);
       }
       return;
     }
-
-    // Array comparison
-    if (Array.isArray(newVal)) {
-      if (!compareArrays) {
-        if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
-          setChangePath(changes, path, newVal);
-        }
-        return;
-      }
-
-      // Detailed array diff
-      if (!Array.isArray(oldVal) || oldVal.length !== newVal.length) {
-        setChangePath(changes, path, newVal);
-        return;
-      }
-
-      for (let i = 0; i < newVal.length; i++) {
-        const itemPath = path ? `${path}[${i}]` : `[${i}]`;
-        computeDiff(oldVal[i], newVal[i], itemPath);
-      }
+    if (!deep || Array.isArray(oldValue) || Array.isArray(newValue) || !isPlainObject(oldValue) || !isPlainObject(newValue)) {
+      if (path) setNestedValue(changes, path, deepClone(newValue));
       return;
     }
-
-    // Object comparison
-    if (isPlainObject(newVal)) {
-      if (!isPlainObject(oldVal)) {
-        setChangePath(changes, path, newVal);
-        return;
-      }
-
-      // Check all keys in new object
-      for (const key in newVal) {
-        if (!newVal.hasOwnProperty(key)) continue;
-        const newPath = path ? `${path}.${key}` : key;
-        computeDiff(oldVal?.[key], newVal[key], newPath);
-      }
-
-      // Check for deleted keys (present in old but not in new)
-      for (const key in oldVal) {
-        if (!oldVal.hasOwnProperty(key)) continue;
-        if (!(key in newVal)) {
-          const newPath = path ? `${path}.${key}` : key;
-          setChangePath(changes, newPath, undefined);
-        }
-      }
+    const keys = new Set([...Object.keys(oldValue), ...Object.keys(newValue)]);
+    for (const key of keys) {
+      const childPath = path ? `${path}.${key}` : key;
+      if (!Object.prototype.hasOwnProperty.call(newValue, key)) setNestedValue(changes, childPath, deletedValue);
+      else walk(oldValue[key], newValue[key], childPath);
     }
   }
-
-  computeDiff(original, current);
-
+  walk(original, current, '');
   return changes;
 }
 
-/**
- * Set value at path in changes object
- */
-function setChangePath(obj, path, value) {
-  if (!path) {
-    return Object.assign(obj, value);
-  }
-
-  const keys = path.split('.');
-  let current = obj;
-
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i];
-    
-    // Handle array indices
-    const arrayMatch = key.match(/^(.+)\[(\d+)\]$/);
-    if (arrayMatch) {
-      const arrayKey = arrayMatch[1];
-      const index = parseInt(arrayMatch[2]);
-      
-      if (!current[arrayKey]) {
-        current[arrayKey] = [];
-      }
-      if (!current[arrayKey][index]) {
-        current[arrayKey][index] = {};
-      }
-      current = current[arrayKey][index];
-    } else {
-      if (!current[key]) {
-        current[key] = {};
-      }
-      current = current[key];
-    }
-  }
-
-  const lastKey = keys[keys.length - 1];
-  current[lastKey] = value;
-}
-
-/**
- * Get list of changed paths
- * @returns {Array<string>} Array of dot-notation paths
- */
-function getChangedPaths(original, current) {
+function getChangedPaths(original, current, options = {}) {
   const paths = [];
-
-  function traverse(oldVal, newVal, path = '') {
-    if (oldVal === newVal) return;
-
-    if (typeof newVal !== 'object' || newVal === null) {
-      if (oldVal !== newVal) {
-        paths.push(path);
-      }
+  const { deep = true, ignoreFields = [] } = options;
+  const ignored = new Set(ignoreFields);
+  function walk(oldValue, newValue, path) {
+    if (ignored.has(path) || isEqual(oldValue, newValue)) return;
+    if (!path && isPlainObject(oldValue) && isPlainObject(newValue)) {
+      for (const key of new Set([...Object.keys(oldValue), ...Object.keys(newValue)])) walk(oldValue[key], newValue[key], key);
       return;
     }
-
-    if (Array.isArray(newVal)) {
-      if (!Array.isArray(oldVal) || JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
-        paths.push(path);
-      }
+    if (!deep || Array.isArray(oldValue) || Array.isArray(newValue) || !isPlainObject(oldValue) || !isPlainObject(newValue)) {
+      if (path) paths.push(path);
       return;
     }
-
-    if (isPlainObject(newVal)) {
-      for (const key in newVal) {
-        if (!newVal.hasOwnProperty(key)) continue;
-        const newPath = path ? `${path}.${key}` : key;
-        traverse(oldVal?.[key], newVal[key], newPath);
-      }
-
-      // Check for deleted keys
-      if (isPlainObject(oldVal)) {
-        for (const key in oldVal) {
-          if (!oldVal.hasOwnProperty(key)) continue;
-          if (!(key in newVal)) {
-            const newPath = path ? `${path}.${key}` : key;
-            paths.push(newPath);
-          }
-        }
-      }
+    for (const key of new Set([...Object.keys(oldValue), ...Object.keys(newValue)])) {
+      walk(oldValue[key], newValue[key], path ? `${path}.${key}` : key);
     }
   }
-
-  traverse(original, current);
+  walk(original, current, '');
   return paths;
 }
 
-/**
- * Check if two objects are deeply equal
- */
-function isEqual(obj1, obj2) {
-  return JSON.stringify(obj1) === JSON.stringify(obj2);
-}
-
-/**
- * Check if object has any changes from original
- */
 function hasChanges(original, current) {
   return !isEqual(original, current);
 }
 
-module.exports = {
-  diff,
-  getChangedPaths,
-  isEqual,
-  hasChanges
-};
+module.exports = { diff, getChangedPaths, isEqual, hasChanges };

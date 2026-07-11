@@ -1,84 +1,22 @@
-# API Schema Mapper
+# Repository notes
 
-A JavaScript library that solves the REST API field name inconsistency problem.
+API Schema Mapper converts API responses to editable form data and converts complete or changed form data back into request payloads.
 
-## Core Problem
+The supported public contracts are documented in [README.md](README.md). Important implementation rules:
 
-Your API returns data with one set of field names (GET), but expects different names when you submit changes (POST/PATCH):
-```javascript
-// GET response
-{
-  user_name: "john",
-  email_address: "john@example.com",
-  contact_info: {
-    phone_number: "555-1234"
-  }
-}
+- arrays are normalized recursively and treated as atomic PATCH values;
+- absent properties, explicit `undefined`, and `null` are distinct;
+- `deletedValue` defaults to `null`;
+- transforms use `fromApi` and `toApi` directions;
+- coercion is field-specific; global type guessing is rejected;
+- explicit `formToApi` mappings override automatic inversion;
+- both legacy nested mappings and field-based mappings are supported;
+- unsafe path segments and malformed mappings fail during construction.
 
-// Your form needs
-{
-  username: "john",
-  email: "john@example.com", 
-  phone: "555-1234"
-}
+Run the full gate before changing package claims or publishing:
 
-// PATCH expects (only changed fields)
-{
-  email_address: "newemail@example.com"
-}
+```bash
+npm run check
 ```
 
-## What It Does
-
-**1. Normalize (API → Form)**
-```javascript
-const mapper = new Mapper({
-  apiToForm: {
-    user_name: 'username',
-    contact_info: {
-      email_address: 'email',
-      phone_number: 'phone'
-    }
-  }
-});
-
-const formData = mapper.normalize(apiResponse);
-// { username: "john", email: "john@example.com", phone: "555-1234" }
-```
-
-**2. Denormalize (Form → API)**
-```javascript
-const apiPayload = mapper.denormalize(formData);
-// Converts back to API format
-```
-
-**3. Diff & Build Minimal PATCH**
-```javascript
-const patchPayload = mapper.buildPatch(initialForm, editedForm);
-// Only includes changed fields in API format
-```
-
-## Key Features
-
-- **Nested object mapping** - Flattens/unflattens complex structures
-- **Change tracking** - Computes minimal diffs
-- **Type coercion** - Auto-converts strings to numbers, booleans, dates
-- **Validation hooks** - Optional validation functions
-- **Zero dependencies** - ~3KB minified
-
-## Use Case
-
-Perfect for React/Vue forms that need to:
-- Sync with REST APIs having inconsistent schemas
-- Send minimal PATCH payloads (bandwidth optimization)
-- Track form changes for "unsaved changes" warnings
-- Avoid writing repetitive mapping logic
-
-## Implementation Details
-
-- **Mapper class**: Main interface with pre-configured mappings
-- **Standalone functions**: `normalize()`, `denormalize()`, `diff()` for advanced use
-- **Payload builders**: `buildPatch()`, `buildPost()`, `buildPut()`
-- **Utilities**: Deep clone, nested value get/set, flatten/unflatten objects
-
-The library is production-ready with comprehensive test coverage and works in both Node.js and browsers.
+This runs behavior tests with enforced coverage thresholds, checks TypeScript declarations, builds the CommonJS and ESM distributions, packs the package, and executes clean consumer smoke tests. Use `npm run benchmark` for locally reproducible performance data. Do not state fixed bundle-size or performance figures unless they are measured and committed by an automated process.

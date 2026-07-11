@@ -1,179 +1,177 @@
-/**
- * Utility functions for schema mapping and transformation
- */
+'use strict';
 
-/**
- * Check if value is a plain object
- */
+const { MapperConfigurationError } = require('./errors');
+
+const BLOCKED_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+
 function isPlainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+  if (value === null || typeof value !== 'object') return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
-/**
- * Deep clone an object
- */
-function deepClone(obj) {
-  if (obj === null || typeof obj !== 'object') {
-    return obj;
+function pathSegments(path) {
+  if (typeof path !== 'string' || path.length === 0) {
+    throw new MapperConfigurationError('Mapping paths must be non-empty strings');
   }
-  
-  if (Array.isArray(obj)) {
-    return obj.map(item => deepClone(item));
-  }
-  
-  const cloned = {};
-  for (const key in obj) {
-    if (obj.hasOwnProperty(key)) {
-      cloned[key] = deepClone(obj[key]);
+  const keys = path.split('.');
+  for (const key of keys) {
+    if (!key || BLOCKED_KEYS.has(key)) {
+      throw new MapperConfigurationError(`Unsafe or empty mapping path segment: ${key || '<empty>'}`, { path });
     }
   }
+  return keys;
+}
+
+function deepClone(value, seen = new WeakMap()) {
+  if (value === null || typeof value !== 'object') return value;
+  if (value instanceof Date) return new Date(value.getTime());
+  if (!Array.isArray(value) && !isPlainObject(value)) {
+    throw new TypeError(`Unsupported value type ${Object.prototype.toString.call(value)}; expected a plain object, array, Date, or primitive`);
+  }
+  if (seen.has(value)) return seen.get(value);
+  const cloned = Array.isArray(value) ? [] : {};
+  seen.set(value, cloned);
+  for (const key of Object.keys(value)) cloned[key] = deepClone(value[key], seen);
   return cloned;
 }
 
-/**
- * Get value at nested path
- * @param {Object} obj - Source object
- * @param {string} path - Dot-notation path (e.g., 'user.name')
- */
-function getNestedValue(obj, path) {
-  const keys = path.split('.');
-  let current = obj;
-  
+function getNestedValue(object, path) {
+  const keys = pathSegments(path);
+  let current = object;
   for (const key of keys) {
-    if (current === null || current === undefined) {
-      return undefined;
-    }
+    if (current === null || current === undefined) return undefined;
     current = current[key];
   }
-  
   return current;
 }
 
-/**
- * Set value at nested path
- * @param {Object} obj - Target object
- * @param {string} path - Dot-notation path
- * @param {*} value - Value to set
- */
-function setNestedValue(obj, path, value) {
-  const keys = path.split('.');
+function setNestedValue(object, path, value) {
+  const keys = pathSegments(path);
   const lastKey = keys.pop();
-  let current = obj;
-  
+  let current = object;
   for (const key of keys) {
-    if (!current[key] || !isPlainObject(current[key])) {
-      current[key] = {};
-    }
+    if (!hasOwn(current, key) || !isPlainObject(current[key])) current[key] = {};
     current = current[key];
   }
-  
   current[lastKey] = value;
+  return object;
 }
 
-/**
- * Invert a mapping schema (swap keys and values)
- * Handles nested objects recursively
- */
-function invertMapping(mapping) {
-  const inverted = {};
-  
-  function invert(source, target) {
-    for (const key in source) {
-      if (!source.hasOwnProperty(key)) continue;
-      
-      const value = source[key];
-      
-      if (isPlainObject(value)) {
-        // Nested object - recurse
-        for (const nestedKey in value) {
-          if (!value.hasOwnProperty(nestedKey)) continue;
-          const nestedValue = value[nestedKey];
-          
-          if (typeof nestedValue === 'string') {
-            // Map nested value back to parent.child format
-            const targetPath = `${key}.${nestedKey}`;
-            target[nestedValue] = targetPath;
-          } else if (isPlainObject(nestedValue)) {
-            // Deeper nesting
-            if (!target[nestedKey]) {
-              target[nestedKey] = {};
-            }
-            invert({ [nestedKey]: nestedValue }, target);
-          }
+function validateMapping(mapping, direction = 'apiToForm') {
+  if (!isPlainObject(mapping)) {
+    throw new MapperConfigurationError(`${direction} must be a plain object`);
+  }
+  const seen = new WeakSet();
+  const destinations = new Set();
+
+  function visit(schema, path, scopedDestinations = destinations) {
+    if (seen.has(schema)) throw new MapperConfigurationError(`Circular mapping configuration at "${path || direction}"`, { path });
+    seen.add(schema);
+    for (const key of Object.keys(schema)) {
+      pathSegments(key);
+      const value = schema[key];
+      const currentPath = path ? `${path}.${key}` : key;
+      if (typeof value === 'string') {
+        pathSegments(value);
+        if (scopedDestinations.has(value)) {
+          throw new MapperConfigurationError(`Duplicate mapping destination "${value}" at "${currentPath}"`, { path: currentPath });
         }
-      } else if (typeof value === 'string') {
-        // Simple mapping
-        target[value] = key;
+        scopedDestinations.add(value);
+      } else if (Array.isArray(value)) {
+        if (value.length !== 1) throw new MapperConfigurationError(`Array mapping at "${currentPath}" must contain exactly one item mapping`, { path: currentPath });
+        if (isPlainObject(value[0])) visit(value[0], `${currentPath}[]`, new Set());
+        else if (Array.isArray(value[0])) {
+          if (value[0].length !== 1) throw new MapperConfigurationError(`Nested array mapping at "${currentPath}" must contain exactly one item mapping`, { path: currentPath });
+        }
+        else if (value[0] !== null && typeof value[0] !== 'string') {
+          throw new MapperConfigurationError(`Invalid array item mapping at "${currentPath}"`, { path: currentPath });
+        }
+      } else if (isPlainObject(value)) {
+        visit(value, currentPath, scopedDestinations);
+      } else {
+        throw new MapperConfigurationError(`Invalid mapping at "${currentPath}": expected a path string, nested mapping, or array item mapping. Received ${typeof value}.`, { path: currentPath });
+      }
+    }
+    seen.delete(schema);
+  }
+  visit(mapping, '');
+  return mapping;
+}
+
+function invertMapping(mapping) {
+  validateMapping(mapping);
+  const inverted = {};
+
+  function invert(schema, apiPrefix = '', target = inverted) {
+    for (const key of Object.keys(schema)) {
+      const value = schema[key];
+      const apiPath = apiPrefix ? `${apiPrefix}.${key}` : key;
+      if (typeof value === 'string') {
+        setNestedValue(target, value, apiPath);
+      } else if (Array.isArray(value)) {
+        const item = value[0];
+        if (isPlainObject(item)) {
+          const itemTarget = {};
+          invert(item, '', itemTarget);
+          target[key] = [itemTarget];
+        } else if (Array.isArray(item)) {
+          const nestedItem = item[0];
+          if (isPlainObject(nestedItem)) {
+            const nestedTarget = {};
+            invert(nestedItem, '', nestedTarget);
+            target[key] = [[nestedTarget]];
+          } else {
+            target[key] = [[nestedItem]];
+          }
+        } else {
+          target[key] = [item];
+        }
+      } else {
+        invert(value, apiPath, target);
       }
     }
   }
-  
-  invert(mapping, inverted);
+  invert(mapping);
   return inverted;
 }
 
-/**
- * Merge two objects deeply
- */
 function deepMerge(target, source) {
-  const result = { ...target };
-  
-  for (const key in source) {
-    if (!source.hasOwnProperty(key)) continue;
-    
-    if (isPlainObject(source[key]) && isPlainObject(result[key])) {
-      result[key] = deepMerge(result[key], source[key]);
-    } else {
-      result[key] = source[key];
-    }
+  const result = deepClone(target);
+  for (const key of Object.keys(source)) {
+    result[key] = isPlainObject(source[key]) && isPlainObject(result[key])
+      ? deepMerge(result[key], source[key])
+      : deepClone(source[key]);
   }
-  
   return result;
 }
 
-/**
- * Flatten nested object to dot notation
- * { a: { b: 1 } } -> { 'a.b': 1 }
- */
-function flattenObject(obj, prefix = '') {
+function flattenObject(object, prefix = '') {
   const flattened = {};
-  
-  for (const key in obj) {
-    if (!obj.hasOwnProperty(key)) continue;
-    
-    const value = obj[key];
-    const newKey = prefix ? `${prefix}.${key}` : key;
-    
-    if (isPlainObject(value)) {
-      Object.assign(flattened, flattenObject(value, newKey));
-    } else {
-      flattened[newKey] = value;
-    }
+  for (const key of Object.keys(object)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (isPlainObject(object[key])) Object.assign(flattened, flattenObject(object[key], path));
+    else flattened[path] = object[key];
   }
-  
   return flattened;
 }
 
-/**
- * Unflatten dot notation to nested object
- * { 'a.b': 1 } -> { a: { b: 1 } }
- */
-function unflattenObject(obj) {
+function unflattenObject(object) {
   const result = {};
-  
-  for (const key in obj) {
-    if (!obj.hasOwnProperty(key)) continue;
-    setNestedValue(result, key, obj[key]);
-  }
-  
+  for (const key of Object.keys(object)) setNestedValue(result, key, object[key]);
   return result;
 }
 
 module.exports = {
+  BLOCKED_KEYS,
+  hasOwn,
   isPlainObject,
+  pathSegments,
   deepClone,
   getNestedValue,
   setNestedValue,
+  validateMapping,
   invertMapping,
   deepMerge,
   flattenObject,

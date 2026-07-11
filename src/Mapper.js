@@ -1,217 +1,203 @@
-/**
- * Mapper - Main class for API schema mapping and transformation
- */
+'use strict';
 
-const { normalize } = require('./normalizer');
-const { denormalize, denormalizeForPost, denormalizeForPatch } = require('./denormalizer');
-const { diff, hasChanges, getChangedPaths, isEqual } = require('./differ');
-const { 
-  buildPatchPayload, 
-  buildPostPayload, 
-  buildPutPayload,
-  buildPartialPayload 
-} = require('./payloadBuilder');
-const { deepClone, invertMapping } = require('./utils');
+const { normalize, coerceType } = require('./normalizer');
+const { denormalizeDirect } = require('./denormalizer');
+const { diff, hasChanges, getChangedPaths } = require('./differ');
+const { deepClone, getNestedValue, invertMapping, isPlainObject, pathSegments, setNestedValue, validateMapping } = require('./utils');
+const { MapperConfigurationError, MapperTransformError, MapperValidationError } = require('./errors');
 
-/**
- * Mapper class - Unified API for schema mapping and payload generation
- */
-class Mapper {
-  /**
-   * Create a new Mapper instance
-   * @param {Object} config - Configuration object
-   * @param {Object} config.apiToForm - API to form field mapping
-   * @param {Object} config.formToApi - (Optional) Explicit form to API mapping
-   * @param {Object} config.transforms - Field transformation functions
-   * @param {Object} config.defaults - Default values for form fields
-   * @param {Function} config.validator - Validation function
-   */
-  constructor(config = {}) {
-    const {
-      apiToForm = {},
-      formToApi = null,
-      transforms = {},
-      defaults = {},
-      validator = null,
-      options = {}
-    } = config;
+const DEFAULT_OPTIONS = Object.freeze({
+  typeCoercion: false,
+  omitUndefined: true,
+  omitNull: false,
+  deletedValue: null,
+  deep: true,
+  includeUnchanged: false,
+  ignoreFields: []
+});
 
-    if (!apiToForm || Object.keys(apiToForm).length === 0) {
-      throw new Error('Mapper requires apiToForm mapping configuration');
+function normalizeValidationErrors(result) {
+  if (result === null || result === undefined || result === true || result.valid === true || result.success === true) return null;
+  if (result === false) return [{ path: '', code: 'invalid', message: 'Validation failed' }];
+  const raw = result.errors || (result.error && (result.error.issues || result.error.errors)) || [];
+  return raw.map(error => typeof error === 'string'
+    ? { path: '', code: 'invalid', message: error }
+    : { path: Array.isArray(error.path) ? error.path.join('.') : (error.path || ''), code: error.code || 'invalid', message: error.message || String(error) });
+}
+
+function assertFields(fields) {
+  if (!isPlainObject(fields) || Object.keys(fields).length === 0) throw new MapperConfigurationError('fields must be a non-empty plain object');
+  const fromPaths = new Set();
+  const toPaths = new Set();
+  for (const [formPath, raw] of Object.entries(fields)) {
+    pathSegments(formPath);
+    const field = typeof raw === 'string' ? { from: raw, to: raw } : raw;
+    if (!isPlainObject(field)) throw new MapperConfigurationError(`Invalid field configuration at "${formPath}"`);
+    if (!field.from && !field.to) throw new MapperConfigurationError(`Field "${formPath}" must define from or to`);
+    for (const [kind, paths] of [['from', fromPaths], ['to', toPaths]]) {
+      if (!field[kind]) continue;
+      pathSegments(field[kind]);
+      if (paths.has(field[kind])) throw new MapperConfigurationError(`Duplicate ${kind} path "${field[kind]}"`);
+      paths.add(field[kind]);
     }
-
-    this.apiToFormMapping = apiToForm;
-    this.formToApiMapping = formToApi || invertMapping(apiToForm);
-    this.transforms = transforms;
-    this.defaults = defaults;
-    this.validator = validator;
-    this.options = {
-      typeCoercion: true,
-      omitUndefined: true,
-      omitNull: false,
-      compareArrays: true,
-      ...options
-    };
-  }
-
-  /**
-   * Normalize API data to form schema
-   * @param {Object} apiData - Raw API response
-   * @returns {Object} Normalized form data
-   */
-  normalize(apiData) {
-    return normalize(apiData, this.apiToFormMapping, {
-      typeCoercion: this.options.typeCoercion,
-      defaultValues: this.defaults,
-      transform: this.transforms
-    });
-  }
-
-  /**
-   * Denormalize form data to API payload
-   * @param {Object} formData - Form state
-   * @returns {Object} API payload
-   */
-  denormalize(formData) {
-    return denormalize(formData, this.apiToFormMapping, {
-      omitUndefined: this.options.omitUndefined,
-      omitNull: this.options.omitNull,
-      transform: this.transforms
-    });
-  }
-
-  /**
-   * Compute diff between two form states
-   * @param {Object} original - Original state
-   * @param {Object} current - Current state
-   * @returns {Object} Changed fields only
-   */
-  diff(original, current) {
-    return diff(original, current, {
-      compareArrays: this.options.compareArrays
-    });
-  }
-
-  /**
-   * Check if form has changes
-   * @param {Object} original - Original state
-   * @param {Object} current - Current state
-   * @returns {boolean}
-   */
-  hasChanges(original, current) {
-    return hasChanges(original, current);
-  }
-
-  /**
-   * Get list of changed field paths
-   * @param {Object} original - Original state
-   * @param {Object} current - Current state
-   * @returns {Array<string>}
-   */
-  getChangedPaths(original, current) {
-    return getChangedPaths(original, current);
-  }
-
-  /**
-   * Build PATCH payload with minimal changes
-   * @param {Object} initialForm - Original form state
-   * @param {Object} currentForm - Current form state
-   * @param {Object} options - Additional options
-   * @returns {Object|null} PATCH payload or null if no changes
-   */
-  buildPatch(initialForm, currentForm, options = {}) {
-    return buildPatchPayload(initialForm, currentForm, this.apiToFormMapping, {
-      transform: this.transforms,
-      validation: this.validator,
-      ...options
-    });
-  }
-
-  /**
-   * Build POST payload with all fields
-   * @param {Object} formData - Form data
-   * @param {Object} options - Additional options
-   * @returns {Object} POST payload
-   */
-  buildPost(formData, options = {}) {
-    return buildPostPayload(formData, this.apiToFormMapping, {
-      transform: this.transforms,
-      validation: this.validator,
-      defaults: this.defaults,
-      ...options
-    });
-  }
-
-  /**
-   * Build PUT payload (complete replacement)
-   * @param {Object} formData - Form data
-   * @param {Object} options - Additional options
-   * @returns {Object} PUT payload
-   */
-  buildPut(formData, options = {}) {
-    return buildPutPayload(formData, this.apiToFormMapping, {
-      transform: this.transforms,
-      validation: this.validator,
-      defaults: this.defaults,
-      ...options
-    });
-  }
-
-  /**
-   * Build partial payload with specific fields
-   * @param {Object} formData - Form data
-   * @param {Array<string>} fields - Fields to include
-   * @param {Object} options - Additional options
-   * @returns {Object} Partial payload
-   */
-  buildPartial(formData, fields, options = {}) {
-    return buildPartialPayload(formData, fields, this.apiToFormMapping, {
-      transform: this.transforms,
-      ...options
-    });
-  }
-
-  /**
-   * Complete workflow: GET -> normalize -> edit -> PATCH
-   * @param {Object} apiData - Original API response
-   * @param {Object} editedForm - User-edited form data
-   * @returns {Object|null} PATCH payload or null
-   */
-  createPatchFromApi(apiData, editedForm) {
-    const initialForm = this.normalize(apiData);
-    return this.buildPatch(initialForm, editedForm);
-  }
-
-  /**
-   * Clone the mapper with modified configuration
-   * @param {Object} config - Configuration overrides
-   * @returns {Mapper} New mapper instance
-   */
-  clone(config = {}) {
-    return new Mapper({
-      apiToForm: this.apiToFormMapping,
-      formToApi: this.formToApiMapping,
-      transforms: this.transforms,
-      defaults: this.defaults,
-      validator: this.validator,
-      options: this.options,
-      ...config
-    });
-  }
-
-  /**
-   * Export mapping configuration
-   * @returns {Object} Mapper configuration
-   */
-  getConfig() {
-    return {
-      apiToForm: deepClone(this.apiToFormMapping),
-      formToApi: deepClone(this.formToApiMapping),
-      transforms: { ...this.transforms },
-      defaults: deepClone(this.defaults),
-      options: { ...this.options }
-    };
+    if (field.operations && (!Array.isArray(field.operations) || field.operations.some(value => !['get', 'normalize', 'post', 'put', 'patch', 'partial'].includes(value)))) {
+      throw new MapperConfigurationError(`Invalid operations for field "${formPath}"`);
+    }
   }
 }
 
+class Mapper {
+  constructor(config = {}) {
+    const { apiToForm, formToApi, fields, transforms = {}, defaults = {}, coerce = {}, validator = null, validate = null, options = {} } = config;
+    if (options.typeCoercion === true) throw new MapperConfigurationError('Global typeCoercion was removed because it can corrupt identifiers; use the field-specific coerce option');
+    this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.transforms = transforms;
+    this.defaults = deepClone(defaults);
+    this.coerce = coerce;
+    this.validator = validator;
+    this.validators = validate;
+    this.fields = fields ? deepClone(fields) : null;
+
+    if (fields) {
+      assertFields(fields);
+      this.apiToFormMapping = null;
+      this.formToApiMapping = null;
+    } else {
+      if (!apiToForm || !Object.keys(apiToForm).length) throw new MapperConfigurationError('Mapper requires apiToForm or fields configuration');
+      validateMapping(apiToForm, 'apiToForm');
+      if (formToApi) validateMapping(formToApi, 'formToApi');
+      this.apiToFormMapping = deepClone(apiToForm);
+      this.formToApiMapping = deepClone(formToApi || invertMapping(apiToForm));
+    }
+  }
+
+  _options(overrides = {}) { return { ...this.options, ...overrides }; }
+
+  _fieldConfig(formPath, raw) {
+    const field = typeof raw === 'string' ? { from: raw, to: raw } : raw;
+    return {
+      ...field,
+      fromApi: field.fromApi || (this.transforms[formPath] && this.transforms[formPath].fromApi) || (typeof this.transforms[formPath] === 'function' ? this.transforms[formPath] : null),
+      toApi: field.toApi || (this.transforms[formPath] && this.transforms[formPath].toApi) || (typeof this.transforms[formPath] === 'function' ? this.transforms[formPath] : null),
+      coerce: field.coerce || this.coerce[formPath]
+    };
+  }
+
+  _validate(data, operation, phase) {
+    let validator = this.validator;
+    if (this.validators) {
+      if (phase === 'payload') validator = this.validators.payload;
+      else if (operation === 'patch') validator = this.validators.patch;
+      else validator = this.validators.form;
+    }
+    if (!validator) return;
+    let result;
+    try { result = validator(data, { operation, phase, mapper: this }); }
+    catch (cause) { throw new MapperValidationError(`Validation failed during ${operation}`, { operation, phase, errors: [{ path: '', code: 'exception', message: cause.message }], cause }); }
+    const errors = normalizeValidationErrors(result);
+    if (errors) throw new MapperValidationError(`Validation failed during ${operation}`, { operation, phase, errors });
+  }
+
+  normalize(apiData, options = {}) {
+    let output;
+    if (!this.fields) {
+      output = normalize(apiData, this.apiToFormMapping, { ...this._options(options), defaultValues: this.defaults, transforms: this.transforms, coerce: this.coerce });
+    } else {
+      output = deepClone(this.defaults);
+      for (const [formPath, raw] of Object.entries(this.fields)) {
+        const field = this._fieldConfig(formPath, raw);
+        if (!field.from || (field.operations && !field.operations.some(op => op === 'get' || op === 'normalize'))) continue;
+        let value = getNestedValue(apiData, field.from);
+        if (field.fromApi) {
+          try { value = field.fromApi(value, apiData); }
+          catch (cause) { throw new MapperTransformError(`fromApi transform failed for field "${formPath}"`, { operation: 'normalize', formPath, apiPath: field.from, value, cause }); }
+        }
+        if (field.coerce && value !== null && value !== undefined) value = coerceType(value, field.coerce, formPath);
+        if (value !== undefined) setNestedValue(output, formPath, deepClone(value));
+        else if (Object.prototype.hasOwnProperty.call(field, 'default')) setNestedValue(output, formPath, deepClone(field.default));
+      }
+    }
+    this._validate(output, 'normalize', 'form');
+    return output;
+  }
+
+  _denormalizeFields(formData, operation, options = {}) {
+    const settings = this._options(options);
+    const payload = {};
+    for (const [formPath, raw] of Object.entries(this.fields)) {
+      const field = this._fieldConfig(formPath, raw);
+      if (!field.to || field.readOnly || (field.operations && !field.operations.includes(operation))) continue;
+      let value = getNestedValue(formData, formPath);
+      if (value === undefined && settings.omitUndefined) continue;
+      if (value === null && settings.omitNull) continue;
+      if (field.toApi) {
+        try { value = field.toApi(value, formData); }
+        catch (cause) { throw new MapperTransformError(`toApi transform failed for field "${formPath}"`, { operation, formPath, apiPath: field.to, value, cause }); }
+      }
+      setNestedValue(payload, field.to, deepClone(value));
+    }
+    return payload;
+  }
+
+  _denormalize(formData, operation, options = {}) {
+    return this.fields
+      ? this._denormalizeFields(formData, operation, options)
+      : denormalizeDirect(formData, this.formToApiMapping, { ...this._options(options), transforms: this.transforms, operation });
+  }
+
+  denormalize(formData, options = {}) { return this._denormalize(formData, options.operation || 'denormalize', options); }
+  diff(original, current, options = {}) { return diff(original, current, this._options(options)); }
+  hasChanges(original, current) { return hasChanges(original, current); }
+  getChangedPaths(original, current, options = {}) { return getChangedPaths(original, current, this._options(options)); }
+
+  buildPatch(initialForm, currentForm, options = {}) {
+    if (!this.hasChanges(initialForm, currentForm)) return null;
+    const settings = this._options(options);
+    const changes = settings.includeUnchanged ? deepClone(currentForm) : diff(initialForm, currentForm, settings);
+    this._validate(changes, 'patch', 'form');
+    const payload = this._denormalize(changes, 'patch', settings);
+    if (!Object.keys(payload).length) return null;
+    this._validate(payload, 'patch', 'payload');
+    return payload;
+  }
+
+  _buildComplete(formData, operation, options = {}) {
+    const complete = { ...deepClone(this.defaults), ...deepClone(formData) };
+    this._validate(complete, operation, 'form');
+    const payload = this._denormalize(complete, operation, { ...options, omitUndefined: options.omitUndefined ?? this.options.omitUndefined });
+    this._validate(payload, operation, 'payload');
+    return payload;
+  }
+
+  buildPost(formData, options = {}) { return this._buildComplete(formData, 'post', options); }
+  buildPut(formData, options = {}) { return this._buildComplete(formData, 'put', options); }
+  buildPartial(formData, fields, options = {}) {
+    const partial = {};
+    for (const path of fields) {
+      const value = getNestedValue(formData, path);
+      if (value !== undefined) setNestedValue(partial, path, value);
+    }
+    return this._denormalize(partial, 'partial', options);
+  }
+
+  createPatchFromApi(apiData, editedForm, options = {}) { return this.buildPatch(this.normalize(apiData), editedForm, options); }
+
+  clone(config = {}) { return new Mapper({ ...this.getConfig(), validator: this.validator, validate: this.validators, ...config }); }
+
+  getConfig() {
+    return {
+      ...(this.fields ? { fields: deepClone(this.fields) } : { apiToForm: deepClone(this.apiToFormMapping), formToApi: deepClone(this.formToApiMapping) }),
+      transforms: { ...this.transforms }, defaults: deepClone(this.defaults), coerce: { ...this.coerce }, options: { ...this.options }
+    };
+  }
+
+  static compose(...mappers) {
+    if (!mappers.length || mappers.some(mapper => !(mapper instanceof Mapper) || !mapper.fields)) {
+      throw new MapperConfigurationError('Mapper.compose requires one or more field-based Mapper instances');
+    }
+    return new Mapper({ fields: Object.assign({}, ...mappers.map(mapper => mapper.fields)), defaults: Object.assign({}, ...mappers.map(mapper => mapper.defaults)) });
+  }
+}
+
+Mapper.DEFAULT_OPTIONS = DEFAULT_OPTIONS;
 module.exports = Mapper;

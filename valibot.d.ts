@@ -1,0 +1,1 @@
+export { valibotValidator } from './index';
