@@ -1,3 +1,4 @@
+# Runs the complete package gate on every supported Node.js release line.
 name: CI
 on: [push, pull_request]
 jobs:

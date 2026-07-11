@@ -1,3 +1,4 @@
+/** Verifies safe path, cloning, mapping, and object utility behavior. */
 'use strict';
 
 const { deepClone, deepMerge, flattenObject, getNestedValue, hasOwn, invertMapping, isPlainObject, pathSegments, setNestedValue, unflattenObject, validateMapping } = require('../src/utils');

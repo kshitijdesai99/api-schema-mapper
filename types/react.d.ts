@@ -1,3 +1,4 @@
+/** TypeScript declarations for the optional `api-schema-mapper/react` entry. */
 import type Mapper from './index';
 export interface MappedFormState<Form, Api> {
   initialForm: Form;

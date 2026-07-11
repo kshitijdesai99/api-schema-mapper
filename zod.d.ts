@@ -1,1 +1,0 @@
-export { zodValidator } from './index';

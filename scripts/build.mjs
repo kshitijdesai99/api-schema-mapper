@@ -1,13 +1,32 @@
+/**
+ * Builds the publishable `dist` directory.
+ *
+ * Source remains readable CommonJS; small wrappers provide package-level ESM,
+ * CommonJS, React, Zod, and Valibot entry points without a bundler dependency.
+ */
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 
+// Always rebuild from scratch so stale files cannot leak into npm packages.
 await rm('dist', { recursive: true, force: true });
 await mkdir('dist/cjs', { recursive: true });
 await cp('src', 'dist/cjs', { recursive: true });
 await writeFile('dist/cjs/package.json', '{"type":"commonjs"}\n');
-await writeFile('dist/index.cjs', "module.exports = require('./cjs/index.js');\n");
-await writeFile('dist/react.cjs', "module.exports = require('./cjs/react.js');\n");
-await writeFile('dist/zod.cjs', "module.exports = { zodValidator: require('./cjs/adapters.js').zodValidator };\n");
-await writeFile('dist/valibot.cjs', "module.exports = { valibotValidator: require('./cjs/adapters.js').valibotValidator };\n");
+await writeFile(
+  'dist/index.cjs',
+  "module.exports = require('./cjs/index.js');\n"
+);
+await writeFile(
+  'dist/react.cjs',
+  "module.exports = require('./cjs/react.js');\n"
+);
+await writeFile(
+  'dist/zod.cjs',
+  "module.exports = { zodValidator: require('./cjs/adapters.js').zodValidator };\n"
+);
+await writeFile(
+  'dist/valibot.cjs',
+  "module.exports = { valibotValidator: require('./cjs/adapters.js').valibotValidator };\n"
+);
 await writeFile('dist/package.json', '{"type":"module"}\n');
 
 const names = [
@@ -18,6 +37,8 @@ const names = [
   'MapperValidationError', 'MapperTransformError', 'schemaValidator', 'zodValidator',
   'valibotValidator', 'utils', 'version'
 ];
+
+// The ESM entry re-exports the exact same runtime objects as CommonJS.
 await writeFile('dist/index.js', [
   "import { createRequire } from 'node:module';",
   'const require = createRequire(import.meta.url);',
@@ -26,9 +47,20 @@ await writeFile('dist/index.js', [
   `export const { ${names.join(', ')} } = api;`,
   ''
 ].join('\n'));
-await writeFile('dist/react.js', "import { createRequire } from 'node:module';\nconst require = createRequire(import.meta.url);\nexport const { useMappedForm } = require('./react.cjs');\n");
-await writeFile('dist/zod.js', "import { createRequire } from 'node:module';\nconst require = createRequire(import.meta.url);\nexport const { zodValidator } = require('./zod.cjs');\n");
-await writeFile('dist/valibot.js', "import { createRequire } from 'node:module';\nconst require = createRequire(import.meta.url);\nexport const { valibotValidator } = require('./valibot.cjs');\n");
+
+function esmSubpath(cjsFile, exportedName) {
+  return [
+    "import { createRequire } from 'node:module';",
+    'const require = createRequire(import.meta.url);',
+    `export const { ${exportedName} } = require('./${cjsFile}');`,
+    ''
+  ].join('\n');
+}
+
+await writeFile('dist/react.js', esmSubpath('react.cjs', 'useMappedForm'));
+await writeFile('dist/zod.js', esmSubpath('zod.cjs', 'zodValidator'));
+await writeFile('dist/valibot.js', esmSubpath('valibot.cjs', 'valibotValidator'));
+
 for (const declaration of ['index.d.ts', 'react.d.ts', 'zod.d.ts', 'valibot.d.ts']) {
-  await cp(declaration, `dist/${declaration}`);
+  await cp(`types/${declaration}`, `dist/${declaration}`);
 }

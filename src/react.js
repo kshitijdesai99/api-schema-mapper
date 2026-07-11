@@ -1,3 +1,9 @@
+/**
+ * Optional React form-state helper.
+ *
+ * This module is exposed through `api-schema-mapper/react`, keeping React out of
+ * the core runtime unless an application explicitly imports the hook.
+ */
 'use strict';
 
 const React = require('react');
@@ -11,6 +17,7 @@ function useMappedForm({ mapper, apiData }) {
 
   const setField = React.useCallback((path, value) => {
     setForm(current => {
+      // Clone only objects along the edited path, preserving React immutability.
       const next = { ...current };
       const keys = pathSegments(path);
       let target = next;

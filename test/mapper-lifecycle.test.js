@@ -1,3 +1,4 @@
+/** Verifies Mapper cloning, configuration export, defaults, and lifecycle helpers. */
 'use strict';
 
 const Mapper = require('../src');

@@ -1,6 +1,7 @@
+# Keeps dependencies, generated artifacts, local settings, and secrets out of Git.
+
 # Dependencies
 node_modules/
-package-lock.json
 yarn.lock
 
 # Testing

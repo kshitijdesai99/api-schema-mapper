@@ -1,3 +1,9 @@
+/**
+ * Structured public error types.
+ *
+ * Error instances retain operation, field paths, values, and original causes so
+ * applications can report failures without parsing error-message strings.
+ */
 'use strict';
 
 class MapperError extends Error {

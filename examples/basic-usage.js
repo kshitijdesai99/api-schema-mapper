@@ -1,5 +1,6 @@
 /**
- * Basic usage examples for API Schema Mapper
+ * Runnable examples for the main mapping, payload, diff, and utility APIs.
+ * Execute with `npm run example` after changing public behavior.
  */
 
 const Mapper = require('../src/index');

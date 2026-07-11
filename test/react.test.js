@@ -1,3 +1,4 @@
+/** Verifies the optional React hook without requiring React as a test dependency. */
 'use strict';
 
 let mockUpdater;

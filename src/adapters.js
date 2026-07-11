@@ -1,3 +1,9 @@
+/**
+ * Optional schema-library adapters.
+ *
+ * These helpers translate safe-parse/parse APIs into Mapper validators without
+ * taking a runtime dependency on Zod, Valibot, or another schema package.
+ */
 'use strict';
 
 const { MapperConfigurationError } = require('./errors');
@@ -14,7 +20,11 @@ function schemaValidator(schema) {
 }
 
 function valibotValidator(schema, safeParse) {
-  if (typeof safeParse !== 'function') throw new MapperConfigurationError('valibotValidator requires Valibot safeParse as its second argument');
+  if (typeof safeParse !== 'function') {
+    throw new MapperConfigurationError(
+      'valibotValidator requires Valibot safeParse as its second argument'
+    );
+  }
   return data => safeParse(schema, data);
 }
 

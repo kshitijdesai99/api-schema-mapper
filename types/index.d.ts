@@ -1,3 +1,4 @@
+/** Public TypeScript declarations for the core api-schema-mapper entry point. */
 export type Operation = 'get' | 'normalize' | 'post' | 'put' | 'patch' | 'partial' | 'denormalize';
 export type Coercion = 'string' | 'number' | 'boolean' | 'date' | ((value: unknown) => unknown);
 export interface ValidationError { path: string; code: string; message: string }

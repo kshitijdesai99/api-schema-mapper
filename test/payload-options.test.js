@@ -1,3 +1,4 @@
+/** Verifies complete and partial payload helpers plus nullish-value options. */
 'use strict';
 
 const Mapper = require('../src');

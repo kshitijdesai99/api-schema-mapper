@@ -19,7 +19,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage --runInBand",
     "test:package": "node scripts/test-package.js",
-    "typecheck": "tsc --noEmit --allowJs false --skipLibCheck index.d.ts test/types.test.ts",
+    "typecheck": "tsc --noEmit --allowJs false --skipLibCheck types/index.d.ts test/types/consumer.ts",
     "benchmark": "node benchmark/index.js",
     "example": "node examples/basic-usage.js",
     "check": "npm run test:coverage && npm run typecheck && npm run test:package"

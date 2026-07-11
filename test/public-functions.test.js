@@ -1,3 +1,4 @@
+/** Verifies stateless payload builders and denormalization helper exports. */
 'use strict';
 
 const {

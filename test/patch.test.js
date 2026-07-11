@@ -1,3 +1,4 @@
+/** Verifies deletion semantics, atomic arrays, deep equality, and PATCH options. */
 'use strict';
 
 const Mapper = require('../src');

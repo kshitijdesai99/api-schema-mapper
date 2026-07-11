@@ -1,3 +1,4 @@
+/** Verifies operation-aware validation and optional schema adapters. */
 'use strict';
 
 const Mapper = require('../src');

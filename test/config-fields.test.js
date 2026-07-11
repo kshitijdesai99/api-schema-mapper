@@ -1,3 +1,4 @@
+/** Verifies configuration errors and advanced field-based mapping features. */
 'use strict';
 
 const Mapper = require('../src');

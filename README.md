@@ -268,6 +268,10 @@ Package size, performance, and coverage are intentionally not stated as fixed ma
 
 Version 2 requires Node 20+. Automatic type guessing is removed: replace `options.typeCoercion: true` with `coerce` entries. Arrays in PATCH are now whole-value replacements, removed fields map to `null` by default, transforms may be directional, and explicit `formToApi` mappings are honored. Existing `apiToForm` shorthand continues to work.
 
+## Maintainers
+
+See the [publishing guide](docs/publishing.md) for the release gate, package inspection, and publication workflow.
+
 ## License
 
 ISC. See [LICENSE](LICENSE).

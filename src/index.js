@@ -1,3 +1,9 @@
+/**
+ * CommonJS package entry point.
+ *
+ * Exports Mapper as the default-compatible value and attaches every supported
+ * named helper for destructuring and generated ESM wrappers.
+ */
 'use strict';
 
 const Mapper = require('./Mapper');

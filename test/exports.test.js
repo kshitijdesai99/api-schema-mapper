@@ -1,3 +1,4 @@
+/** Verifies the stable public CommonJS export surface. */
 'use strict';
 
 const api = require('../src');

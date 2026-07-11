@@ -1,3 +1,4 @@
+/** Verifies explicit coercion, directional transforms, and transform failures. */
 'use strict';
 
 const Mapper = require('../src');

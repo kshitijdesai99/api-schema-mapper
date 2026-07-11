@@ -1,3 +1,4 @@
+/** Verifies edge branches that define supported-value and error contracts. */
 'use strict';
 
 const Mapper = require('../src');

@@ -43,4 +43,4 @@ For scoped packages, add `--access public` when appropriate. Publishing changes 
 
 ## Verify
 
-Install the published version in a new directory and repeat the CommonJS and ESM examples from [README.md](README.md). Confirm the npm package page shows the intended README, version, license, repository, and Node requirement.
+Install the published version in a new directory and repeat the CommonJS and ESM examples from [README.md](../README.md). Confirm the npm package page shows the intended README, version, license, repository, and Node requirement.

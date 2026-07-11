@@ -1,3 +1,4 @@
+/** Verifies API-to-form mapping for flat, nested, array, and field syntax. */
 'use strict';
 
 const Mapper = require('../src');

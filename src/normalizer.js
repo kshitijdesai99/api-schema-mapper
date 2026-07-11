@@ -1,3 +1,9 @@
+/**
+ * API-to-form mapping functions.
+ *
+ * Recursively maps nested values and arrays, applies `fromApi` transforms, and
+ * performs only explicitly configured coercion.
+ */
 'use strict';
 
 const { MapperTransformError } = require('./errors');
@@ -5,40 +11,77 @@ const { deepClone, getNestedValue, isPlainObject, setNestedValue } = require('./
 
 function coerceType(value, type, field = '') {
   if (typeof type === 'function') {
-    try { return type(value); } catch (cause) {
-      throw new MapperTransformError(`Could not coerce field "${field}"`, { operation: 'normalize', formPath: field, value, cause });
+    try {
+      return type(value);
+    } catch (cause) {
+      throw new MapperTransformError(`Could not coerce field "${field}"`, {
+        operation: 'normalize',
+        formPath: field,
+        value,
+        cause
+      });
     }
   }
   if (type === 'number') {
-    if ((typeof value !== 'string' && typeof value !== 'number') || value === '' || !Number.isFinite(Number(value))) {
-      throw new MapperTransformError(`Could not convert field "${field}" value "${String(value)}" to number`, { operation: 'normalize', formPath: field, value });
+    const invalidNumber = (typeof value !== 'string' && typeof value !== 'number')
+      || value === ''
+      || !Number.isFinite(Number(value));
+    if (invalidNumber) {
+      throw new MapperTransformError(
+        `Could not convert field "${field}" value "${String(value)}" to number`,
+        { operation: 'normalize', formPath: field, value }
+      );
     }
     return Number(value);
   }
   if (type === 'boolean') {
     if (value === true || value === 'true') return true;
     if (value === false || value === 'false') return false;
-    throw new MapperTransformError(`Could not convert field "${field}" value "${String(value)}" to boolean`, { operation: 'normalize', formPath: field, value });
+    throw new MapperTransformError(
+      `Could not convert field "${field}" value "${String(value)}" to boolean`,
+      { operation: 'normalize', formPath: field, value }
+    );
   }
   if (type === 'date') {
     const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-    if (Number.isNaN(date.getTime())) throw new MapperTransformError(`Could not convert field "${field}" value "${String(value)}" to date`, { operation: 'normalize', formPath: field, value });
+    if (Number.isNaN(date.getTime())) {
+      throw new MapperTransformError(
+        `Could not convert field "${field}" value "${String(value)}" to date`,
+        { operation: 'normalize', formPath: field, value }
+      );
+    }
     return date;
   }
   if (type === 'string') return String(value);
-  throw new MapperTransformError(`Unknown coercion "${String(type)}" for field "${field}"`, { operation: 'normalize', formPath: field, value });
+  throw new MapperTransformError(
+    `Unknown coercion "${String(type)}" for field "${field}"`,
+    { operation: 'normalize', formPath: field, value }
+  );
 }
 
 function applyFromApi(transform, value, source, details) {
-  const fn = typeof transform === 'function' ? transform : transform && transform.fromApi;
+  const fn = typeof transform === 'function'
+    ? transform
+    : transform && transform.fromApi;
   if (!fn) return value;
-  try { return fn(value, source); } catch (cause) {
-    throw new MapperTransformError(`fromApi transform failed for field "${details.formPath}"`, { ...details, operation: 'normalize', value, cause });
+
+  try {
+    return fn(value, source);
+  } catch (cause) {
+    throw new MapperTransformError(
+      `fromApi transform failed for field "${details.formPath}"`,
+      { ...details, operation: 'normalize', value, cause }
+    );
   }
 }
 
 function normalize(apiData, mapping, options = {}) {
-  const { defaultValues = {}, transform = {}, transforms = transform, coerce = {}, typeCoercion = false } = options;
+  const {
+    defaultValues = {},
+    transform = {},
+    transforms = transform,
+    coerce = {}
+  } = options;
   const formData = deepClone(defaultValues);
 
   function process(source, schema, target) {
@@ -50,7 +93,6 @@ function normalize(apiData, mapping, options = {}) {
         let value = applyFromApi(transforms[formPath], sourceValue, source, { formPath, apiPath: apiKey });
         const coercion = coerce[formPath];
         if (coercion && value !== null && value !== undefined) value = coerceType(value, coercion, formPath);
-        // typeCoercion is retained as an option but deliberately performs no unsafe guessing.
         if (value !== undefined) setNestedValue(target, formPath, deepClone(value));
       } else if (Array.isArray(mappingValue)) {
         if (sourceValue === undefined) continue;
@@ -61,6 +103,7 @@ function normalize(apiData, mapping, options = {}) {
         const itemMapping = mappingValue[0];
         const values = sourceValue.map(item => {
           if (isPlainObject(itemMapping) && isPlainObject(item)) {
+            // Each item needs its own target; sharing the outer form caused the v1 array bug.
             const normalizedItem = {};
             process(item, itemMapping, normalizedItem);
             return normalizedItem;

@@ -1,3 +1,4 @@
+/** Verifies form-to-API mapping and complete bidirectional round trips. */
 'use strict';
 
 const Mapper = require('../src');

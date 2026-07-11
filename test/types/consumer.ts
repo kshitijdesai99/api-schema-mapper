@@ -1,4 +1,5 @@
-import Mapper from '../index';
+/** Compile-only consumer test for bundled generic TypeScript declarations. */
+import Mapper from '../../types';
 
 type ApiUser = { user_name: string; price_cents: number };
 type UserForm = { name: string; price: number };
