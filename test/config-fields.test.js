@@ -45,4 +45,44 @@ describe('configuration and field features', () => {
     const conflict = new Mapper({ fields: { alias: { from: 'name', to: 'alias' } } });
     expect(() => Mapper.compose(identity, conflict)).toThrow('Duplicate from path');
   });
+
+  test('composition preserves transforms, coercion, options, defaults, and validators', () => {
+    const validator = jest.fn(() => ({ valid: true }));
+    const price = new Mapper({
+      fields: { price: { from: 'price_cents', to: 'price_cents' } },
+      transforms: {
+        price: {
+          fromApi: value => value / 100,
+          toApi: value => Math.round(value * 100)
+        }
+      },
+      defaults: { preferences: { currency: 'AUD' } },
+      options: { omitNull: true, ignoreFields: ['audit'] },
+      validator
+    });
+    const age = new Mapper({
+      fields: { age: { from: 'age', to: 'age' } },
+      coerce: { age: 'number' },
+      defaults: { preferences: { locale: 'en-AU' } }
+    });
+    const composed = Mapper.compose(price, age);
+
+    expect(composed.normalize({ price_cents: 1299, age: '27' })).toEqual({
+      preferences: { currency: 'AUD', locale: 'en-AU' },
+      price: 12.99,
+      age: 27
+    });
+    expect(composed.denormalize({ price: 12.99, age: 27 })).toEqual({
+      price_cents: 1299,
+      age: 27
+    });
+    expect(composed.options).toMatchObject({ omitNull: true, ignoreFields: ['audit'] });
+    expect(validator).toHaveBeenCalled();
+  });
+
+  test('composition rejects duplicate form paths before they can be overwritten', () => {
+    const first = new Mapper({ fields: { name: { from: 'first_name' } } });
+    const second = new Mapper({ fields: { name: { from: 'display_name' } } });
+    expect(() => Mapper.compose(first, second)).toThrow('Duplicate form path "name"');
+  });
 });

@@ -11,18 +11,21 @@ const { denormalizeDirect } = require('./denormalizer');
 const { diff, hasChanges, getChangedPaths } = require('./differ');
 const {
   deepClone,
+  deepMerge,
   getNestedValue,
+  getNestedState,
   invertMapping,
   isPlainObject,
+  omitNestedPaths,
   pathSegments,
   setNestedValue,
   validateMapping
 } = require('./utils');
 const {
   MapperConfigurationError,
-  MapperTransformError,
-  MapperValidationError
+  MapperTransformError
 } = require('./errors');
+const { normalizeValidationErrors, runValidation } = require('./validation');
 
 const DEFAULT_OPTIONS = Object.freeze({
   typeCoercion: false,
@@ -41,36 +44,6 @@ const VALID_FIELD_OPERATIONS = new Set([
   'patch',
   'partial'
 ]);
-
-// Convert supported validator result shapes into one predictable error format.
-function normalizeValidationErrors(result) {
-  const passed = result === null
-    || result === undefined
-    || result === true
-    || result.valid === true
-    || result.success === true;
-
-  if (passed) return null;
-  if (result === false) {
-    return [{ path: '', code: 'invalid', message: 'Validation failed' }];
-  }
-
-  const schemaErrors = result.error
-    && (result.error.issues || result.error.errors);
-  const rawErrors = result.errors || schemaErrors || [];
-
-  return rawErrors.map(error => {
-    if (typeof error === 'string') {
-      return { path: '', code: 'invalid', message: error };
-    }
-
-    return {
-      path: Array.isArray(error.path) ? error.path.join('.') : (error.path || ''),
-      code: error.code || 'invalid',
-      message: error.message || String(error)
-    };
-  });
-}
 
 // Validate field-based configuration once, before any user data is processed.
 function assertFields(fields) {
@@ -109,6 +82,38 @@ function assertFields(fields) {
       throw new MapperConfigurationError(`Invalid operations for field "${formPath}"`);
     }
   }
+}
+
+function combineValidators(validators) {
+  const active = validators.filter(Boolean);
+  if (!active.length) return null;
+
+  return (data, context) => {
+    for (const validator of active) {
+      const result = validator(data, context);
+      if (normalizeValidationErrors(result)) return result;
+    }
+    return true;
+  };
+}
+
+function composeOptions(mappers) {
+  const options = { ...DEFAULT_OPTIONS };
+
+  for (const key of Object.keys(DEFAULT_OPTIONS)) {
+    if (key === 'ignoreFields') continue;
+    const configuredValues = mappers
+      .map(mapper => mapper.options[key])
+      .filter(value => value !== DEFAULT_OPTIONS[key]);
+    if (configuredValues.length) {
+      options[key] = configuredValues[configuredValues.length - 1];
+    }
+  }
+
+  options.ignoreFields = [
+    ...new Set(mappers.flatMap(mapper => mapper.options.ignoreFields))
+  ];
+  return options;
 }
 
 class Mapper {
@@ -185,28 +190,7 @@ class Mapper {
       else if (operation === 'patch') validator = this.validators.patch;
       else validator = this.validators.form;
     }
-    if (!validator) return;
-
-    let result;
-    try {
-      result = validator(data, { operation, phase, mapper: this });
-    } catch (cause) {
-      throw new MapperValidationError(`Validation failed during ${operation}`, {
-        operation,
-        phase,
-        errors: [{ path: '', code: 'exception', message: cause.message }],
-        cause
-      });
-    }
-
-    const errors = normalizeValidationErrors(result);
-    if (errors) {
-      throw new MapperValidationError(`Validation failed during ${operation}`, {
-        operation,
-        phase,
-        errors
-      });
-    }
+    runValidation(validator, data, { operation, phase, mapper: this });
   }
 
   normalize(apiData, options = {}) {
@@ -266,7 +250,9 @@ class Mapper {
         && !field.operations.includes(operation);
       if (!field.to || field.readOnly || excludedFromOperation) continue;
 
-      let value = getNestedValue(formData, formPath);
+      const state = getNestedState(formData, formPath);
+      if (!state.found) continue;
+      let value = state.value;
       if (value === undefined && settings.omitUndefined) continue;
       if (value === null && settings.omitNull) continue;
       if (field.toApi) {
@@ -303,8 +289,8 @@ class Mapper {
     return diff(original, current, this._options(options));
   }
 
-  hasChanges(original, current) {
-    return hasChanges(original, current);
+  hasChanges(original, current, options = {}) {
+    return hasChanges(original, current, this._options(options));
   }
 
   getChangedPaths(original, current, options = {}) {
@@ -312,10 +298,10 @@ class Mapper {
   }
 
   buildPatch(initialForm, currentForm, options = {}) {
-    if (!this.hasChanges(initialForm, currentForm)) return null;
     const settings = this._options(options);
+    if (!this.hasChanges(initialForm, currentForm, settings)) return null;
     const changes = settings.includeUnchanged
-      ? deepClone(currentForm)
+      ? omitNestedPaths(currentForm, settings.ignoreFields)
       : diff(initialForm, currentForm, settings);
     this._validate(changes, 'patch', 'form');
     const payload = this._denormalize(changes, 'patch', settings);
@@ -325,7 +311,7 @@ class Mapper {
   }
 
   _buildComplete(formData, operation, options = {}) {
-    const complete = { ...deepClone(this.defaults), ...deepClone(formData) };
+    const complete = deepMerge(this.defaults, formData);
     this._validate(complete, operation, 'form');
     const payload = this._denormalize(complete, operation, {
       ...options,
@@ -349,7 +335,10 @@ class Mapper {
       const value = getNestedValue(formData, path);
       if (value !== undefined) setNestedValue(partial, path, value);
     }
-    return this._denormalize(partial, 'partial', options);
+    this._validate(partial, 'partial', 'form');
+    const payload = this._denormalize(partial, 'partial', options);
+    this._validate(payload, 'partial', 'payload');
+    return payload;
   }
 
   createPatchFromApi(apiData, editedForm, options = {}) {
@@ -387,9 +376,44 @@ class Mapper {
       );
     }
 
+    const fields = {};
+    let defaults = {};
+    const transforms = {};
+    const coerce = {};
+
+    for (const mapper of mappers) {
+      for (const [formPath, field] of Object.entries(mapper.fields)) {
+        if (Object.prototype.hasOwnProperty.call(fields, formPath)) {
+          throw new MapperConfigurationError(`Duplicate form path "${formPath}"`);
+        }
+        fields[formPath] = deepClone(field);
+      }
+      defaults = deepMerge(defaults, mapper.defaults);
+      Object.assign(transforms, mapper.transforms);
+      Object.assign(coerce, mapper.coerce);
+    }
+
+    const formValidators = mappers.map(mapper => (
+      mapper.validators?.form || mapper.validator
+    ));
+    const patchValidators = mappers.map(mapper => (
+      mapper.validators?.patch || mapper.validator
+    ));
+    const payloadValidators = mappers.map(mapper => (
+      mapper.validators?.payload || mapper.validator
+    ));
+
     return new Mapper({
-      fields: Object.assign({}, ...mappers.map(mapper => mapper.fields)),
-      defaults: Object.assign({}, ...mappers.map(mapper => mapper.defaults))
+      fields,
+      defaults,
+      transforms,
+      coerce,
+      options: composeOptions(mappers),
+      validate: {
+        form: combineValidators(formValidators),
+        patch: combineValidators(patchValidators),
+        payload: combineValidators(payloadValidators)
+      }
     });
   }
 }

@@ -100,8 +100,8 @@ function getChangedPaths(original, current, options = {}) {
   return paths;
 }
 
-function hasChanges(original, current) {
-  return !isEqual(original, current);
+function hasChanges(original, current, options = {}) {
+  return getChangedPaths(original, current, options).length > 0;
 }
 
 module.exports = { diff, getChangedPaths, isEqual, hasChanges };

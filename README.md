@@ -26,6 +26,10 @@ const Mapper = require('api-schema-mapper');
 import Mapper, { MapperValidationError } from 'api-schema-mapper';
 ```
 
+The ESM and React entries are generated as browser-compatible modules. The
+package gate bundles both entries with esbuild using `platform: 'browser'` and
+rejects any browser-facing output containing a `node:*` import.
+
 ## Recommended field configuration
 
 ```js
@@ -117,6 +121,10 @@ mapper.buildPatch(initial, current);
 
 Arrays are atomic: editing, inserting, deleting, or reordering any item sends the complete current array. A deleted property uses `options.deletedValue`, which defaults to `null`. This is distinct from setting a property to `undefined`; `undefined` is omitted by default.
 
+For field mappings such as `profile.name` and `profile.email`, deleting the
+entire `profile` object emits both mapped request fields with the configured
+`deletedValue`.
+
 ## Options
 
 | Option | Default | Effect |
@@ -173,6 +181,9 @@ try {
 }
 ```
 
+Standalone POST, PUT, PATCH, and partial builders use the same validation result
+normalization and throw the same structured error type.
+
 Optional adapters do not add runtime dependencies:
 
 ```js
@@ -185,7 +196,9 @@ const validateValibot = valibotValidator(UserSchema, safeParse);
 
 ## Composition
 
-Field-based mappers can be composed. Conflicting source or destination paths fail at construction time.
+Field-based mappers can be composed. Composition preserves transforms, coercion,
+defaults, options, and validators. Duplicate form paths and conflicting source
+or destination paths fail instead of being silently overwritten.
 
 ```js
 const userMapper = Mapper.compose(identityMapper, addressMapper, preferencesMapper);
@@ -212,21 +225,24 @@ const {
 
 ## TypeScript
 
-Declarations are bundled and checked during CI. Mapper result types follow the supplied API and form generics:
+Declarations are bundled and checked during CI. Response and request types are
+separate, while the request type defaults to the response type for backwards
+compatibility:
 
 ```ts
-type ApiUser = { user_name: string; price_cents: number };
+type UserResponse = { user_name: string; price_cents: number };
 type UserForm = { name: string; price: number };
+type UserRequest = { displayName: string; price_cents: number };
 
-const mapper = new Mapper<ApiUser, UserForm>({
+const mapper = new Mapper<UserResponse, UserForm, UserRequest>({
   fields: {
     name: { from: 'user_name', to: 'displayName' },
     price: { from: 'price_cents', to: 'price_cents' }
   }
 });
 
-const form: UserForm = mapper.normalize(apiUser);
-const patch: Partial<ApiUser> | null = mapper.buildPatch(form, editedForm);
+const form: UserForm = mapper.normalize(userResponse);
+const patch: Partial<UserRequest> | null = mapper.buildPatch(form, editedForm);
 ```
 
 ## Public methods
@@ -257,7 +273,7 @@ The mapper supports primitives, `null`, `undefined`, plain objects, arrays, `Dat
 npm test                 # behavior suites
 npm run test:coverage    # enforced 90% global thresholds
 npm run typecheck        # declaration consumer check
-npm run test:package     # npm pack + clean CJS and ESM consumers
+npm run test:package     # packed CJS, Node ESM, browser, and React consumers
 npm run benchmark        # reproducible local 20-field normalization benchmark
 npm run check            # complete CI gate
 ```
@@ -267,6 +283,10 @@ Package size, performance, and coverage are intentionally not stated as fixed ma
 ## Migrating from v1
 
 Version 2 requires Node 20+. Automatic type guessing is removed: replace `options.typeCoercion: true` with `coerce` entries. Arrays in PATCH are now whole-value replacements, removed fields map to `null` by default, transforms may be directional, and explicit `formToApi` mappings are honored. Existing `apiToForm` shorthand continues to work.
+
+Version 2.1 adds browser-native ESM output and the optional third
+`ApiRequest` generic. Two-generic `Mapper<ApiResponse, Form>` declarations remain
+valid and use `ApiResponse` as the request type.
 
 ## Maintainers
 

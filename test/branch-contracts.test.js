@@ -64,8 +64,8 @@ describe('explicit edge contracts', () => {
   });
 
   test('standalone validation formats object errors and empty error sets', () => {
-    expect(() => buildPostPayload({ name: 'A' }, { name: 'name' }, { validation: () => ({ valid: false, errors: [{ message: 'object error' }] }) })).toThrow('object error');
-    expect(() => buildPostPayload({ name: 'A' }, { name: 'name' }, { validation: () => ({ valid: false }) })).toThrow('Validation failed: ');
+    expect(() => buildPostPayload({ name: 'A' }, { name: 'name' }, { validation: () => ({ valid: false, errors: [{ message: 'object error' }] }) })).toThrow('Validation failed during post');
+    expect(() => buildPostPayload({ name: 'A' }, { name: 'name' }, { validation: () => ({ valid: false }) })).toThrow('Validation failed during post');
   });
 
   test('inverts nested primitive arrays and error construction works without captureStackTrace', () => {

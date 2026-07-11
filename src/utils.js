@@ -61,6 +61,26 @@ function getNestedValue(object, path) {
   return current;
 }
 
+/**
+ * Read a mapped path while retaining explicit terminal parent values.
+ * For example, `{ profile: null }` resolves `profile.name` to a found `null`,
+ * allowing parent deletion to clear every mapped child field.
+ */
+function getNestedState(object, path) {
+  const keys = pathSegments(path);
+  let current = object;
+
+  for (const key of keys) {
+    if (current === null || typeof current !== 'object') {
+      return { found: true, value: current };
+    }
+    if (!hasOwn(current, key)) return { found: false, value: undefined };
+    current = current[key];
+  }
+
+  return { found: true, value: current };
+}
+
 function setNestedValue(object, path, value) {
   const keys = pathSegments(path);
   const lastKey = keys.pop();
@@ -73,6 +93,26 @@ function setNestedValue(object, path, value) {
   }
   current[lastKey] = value;
   return object;
+}
+
+function deleteNestedValue(object, path) {
+  const keys = pathSegments(path);
+  const lastKey = keys.pop();
+  let current = object;
+
+  for (const key of keys) {
+    if (!isPlainObject(current) || !hasOwn(current, key)) return false;
+    current = current[key];
+  }
+
+  if (!isPlainObject(current) || !hasOwn(current, lastKey)) return false;
+  return delete current[lastKey];
+}
+
+function omitNestedPaths(object, paths) {
+  const result = deepClone(object);
+  for (const path of paths) deleteNestedValue(result, path);
+  return result;
 }
 
 function validateMapping(mapping, direction = 'apiToForm') {
@@ -157,18 +197,18 @@ function invertMapping(mapping) {
         if (isPlainObject(item)) {
           const itemTarget = {};
           invert(item, '', itemTarget);
-          target[key] = [itemTarget];
+          setNestedValue(target, apiPath, [itemTarget]);
         } else if (Array.isArray(item)) {
           const nestedItem = item[0];
           if (isPlainObject(nestedItem)) {
             const nestedTarget = {};
             invert(nestedItem, '', nestedTarget);
-            target[key] = [[nestedTarget]];
+            setNestedValue(target, apiPath, [[nestedTarget]]);
           } else {
-            target[key] = [[nestedItem]];
+            setNestedValue(target, apiPath, [[nestedItem]]);
           }
         } else {
-          target[key] = [item];
+          setNestedValue(target, apiPath, [item]);
         }
       } else {
         invert(value, apiPath, target);
@@ -217,7 +257,10 @@ module.exports = {
   pathSegments,
   deepClone,
   getNestedValue,
+  getNestedState,
   setNestedValue,
+  deleteNestedValue,
+  omitNestedPaths,
   validateMapping,
   invertMapping,
   deepMerge,

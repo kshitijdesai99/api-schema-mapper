@@ -21,9 +21,26 @@ describe('standalone payload and denormalization APIs', () => {
 
   test('validates standalone POST and PATCH data', () => {
     const invalid = () => ({ valid: false, errors: ['not allowed'] });
-    expect(() => buildPatchPayload({ name: 'A' }, { name: 'B' }, mapping, { validation: invalid })).toThrow('Validation failed: not allowed');
-    expect(() => buildPostPayload({ name: 'A' }, mapping, { validation: () => ({ success: false, error: { issues: [{ message: 'bad name' }] } }) })).toThrow('Validation failed: bad name');
+    expect(() => buildPatchPayload({ name: 'A' }, { name: 'B' }, mapping, { validation: invalid })).toThrow('Validation failed during patch');
+    expect(() => buildPostPayload({ name: 'A' }, mapping, { validation: () => ({ success: false, error: { issues: [{ message: 'bad name' }] } }) })).toThrow('Validation failed during post');
+    expect(() => buildPostPayload({ name: 'A' }, mapping, { validation: () => false })).toThrow('Validation failed during post');
+    expect(() => buildPutPayload({ name: 'A' }, mapping, { validation: () => false })).toThrow('Validation failed during put');
+    expect(() => buildPartialPayload({ name: 'A' }, ['name'], mapping, { validation: () => false })).toThrow('Validation failed during partial');
     expect(buildPostPayload({ name: 'A' }, mapping, { validation: () => ({ valid: true }) })).toEqual({ user_name: 'A' });
+  });
+
+  test('deep-merges defaults in the standalone POST builder', () => {
+    const nestedMapping = {
+      country_code: 'address.country',
+      city_name: 'address.city'
+    };
+    expect(buildPostPayload(
+      { address: { city: 'Sydney' } },
+      nestedMapping,
+      { defaults: { address: { country: 'AU', city: 'Adelaide' } } }
+    )).toEqual({
+      address: { country_code: 'AU', city_name: 'Sydney' }
+    });
   });
 
   test('factory binds mappings and default options', () => {
@@ -32,6 +49,17 @@ describe('standalone payload and denormalization APIs', () => {
     expect(builder.buildPost({ name: 'A' })).toEqual({ user_name: 'A', role_name: 'user' });
     expect(builder.buildPut({ name: 'A' })).toEqual({ user_name: 'A', role_name: 'user' });
     expect(builder.buildPartial({ name: 'A' }, ['name'])).toEqual({ user_name: 'A' });
+  });
+
+  test('standalone PATCH respects ignored fields in both payload modes', () => {
+    const before = { name: 'A', role: 'user' };
+    expect(buildPatchPayload(before, { name: 'A', role: 'admin' }, mapping, {
+      ignoreFields: ['role']
+    })).toBeNull();
+    expect(buildPatchPayload(before, { name: 'B', role: 'admin' }, mapping, {
+      ignoreFields: ['role'],
+      includeUnchanged: true
+    })).toEqual({ user_name: 'B' });
   });
 
   test('supports direct mappings, helpers, null arrays, non-arrays, and nested arrays', () => {

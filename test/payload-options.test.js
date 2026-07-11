@@ -12,6 +12,19 @@ describe('payload helpers and nullish options', () => {
     expect(mapper.createPatchFromApi({ user_name: 'Ada', role_name: 'user' }, { name: 'Grace', role: 'user' })).toEqual({ user_name: 'Grace' });
   });
 
+  test('deep-merges nested defaults for complete payloads', () => {
+    const mapper = new Mapper({
+      fields: {
+        'address.country': { to: 'address.country' },
+        'address.city': { to: 'address.city' }
+      },
+      defaults: { address: { country: 'AU', city: 'Adelaide' } }
+    });
+    expect(mapper.buildPost({ address: { city: 'Sydney' } })).toEqual({
+      address: { country: 'AU', city: 'Sydney' }
+    });
+  });
+
   test('omitNull and omitUndefined each work enabled and disabled', () => {
     const mapping = { apiToForm: { a: 'a', b: 'b' } };
     expect(new Mapper({ ...mapping, options: { omitNull: true } }).denormalize({ a: null, b: 1 })).toEqual({ b: 1 });

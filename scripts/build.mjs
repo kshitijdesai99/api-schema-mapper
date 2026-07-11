@@ -1,10 +1,11 @@
 /**
  * Builds the publishable `dist` directory.
  *
- * Source remains readable CommonJS; small wrappers provide package-level ESM,
- * CommonJS, React, Zod, and Valibot entry points without a bundler dependency.
+ * Source remains readable CommonJS. Esbuild converts explicit entry modules into
+ * genuine browser-compatible ESM instead of relying on Node's `createRequire`.
  */
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { build } from 'esbuild';
 
 // Always rebuild from scratch so stale files cannot leak into npm packages.
 await rm('dist', { recursive: true, force: true });
@@ -29,37 +30,24 @@ await writeFile(
 );
 await writeFile('dist/package.json', '{"type":"module"}\n');
 
-const names = [
-  'Mapper', 'normalize', 'normalizeFlat', 'coerceType', 'denormalize', 'denormalizeDirect',
-  'denormalizeFlat', 'denormalizeForPost', 'denormalizeForPatch', 'diff', 'getChangedPaths',
-  'hasChanges', 'isEqual', 'buildPatchPayload', 'buildPostPayload', 'buildPutPayload',
-  'buildPartialPayload', 'createPayloadBuilder', 'MapperError', 'MapperConfigurationError',
-  'MapperValidationError', 'MapperTransformError', 'schemaValidator', 'zodValidator',
-  'valibotValidator', 'utils', 'version'
+const esmBuilds = [
+  ['scripts/entries/index.mjs', 'dist/index.js', []],
+  ['scripts/entries/react.mjs', 'dist/react.js', ['react']],
+  ['scripts/entries/zod.mjs', 'dist/zod.js', []],
+  ['scripts/entries/valibot.mjs', 'dist/valibot.js', []]
 ];
 
-// The ESM entry re-exports the exact same runtime objects as CommonJS.
-await writeFile('dist/index.js', [
-  "import { createRequire } from 'node:module';",
-  'const require = createRequire(import.meta.url);',
-  "const api = require('./index.cjs');",
-  'export default api;',
-  `export const { ${names.join(', ')} } = api;`,
-  ''
-].join('\n'));
-
-function esmSubpath(cjsFile, exportedName) {
-  return [
-    "import { createRequire } from 'node:module';",
-    'const require = createRequire(import.meta.url);',
-    `export const { ${exportedName} } = require('./${cjsFile}');`,
-    ''
-  ].join('\n');
-}
-
-await writeFile('dist/react.js', esmSubpath('react.cjs', 'useMappedForm'));
-await writeFile('dist/zod.js', esmSubpath('zod.cjs', 'zodValidator'));
-await writeFile('dist/valibot.js', esmSubpath('valibot.cjs', 'valibotValidator'));
+await Promise.all(esmBuilds.map(([entryPoint, outfile, external]) => build({
+  entryPoints: [entryPoint],
+  outfile,
+  bundle: true,
+  format: 'esm',
+  platform: 'browser',
+  target: 'es2020',
+  external,
+  legalComments: 'none',
+  sourcemap: false
+})));
 
 for (const declaration of ['index.d.ts', 'react.d.ts', 'zod.d.ts', 'valibot.d.ts']) {
   await cp(`types/${declaration}`, `dist/${declaration}`);

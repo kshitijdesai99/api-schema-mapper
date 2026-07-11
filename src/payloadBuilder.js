@@ -8,32 +8,33 @@
 
 const { diff, hasChanges } = require('./differ');
 const { denormalize } = require('./denormalizer');
-const { deepClone, getNestedValue, setNestedValue } = require('./utils');
-
-function validate(data, operation, validation) {
-  if (!validation) return;
-  const result = validation(data, { operation });
-  if (result && (result.valid === false || result.success === false)) {
-    const errors = result.errors || (result.error && result.error.issues) || [];
-    const message = errors.map(error => error.message || error).join(', ');
-    throw new Error(`Validation failed: ${message}`);
-  }
-}
+const {
+  deepMerge,
+  getNestedValue,
+  omitNestedPaths,
+  setNestedValue
+} = require('./utils');
+const { runValidation } = require('./validation');
 
 function buildPatchPayload(initialForm, currentForm, mapping, options = {}) {
-  if (!hasChanges(initialForm, currentForm)) return null;
+  if (!hasChanges(initialForm, currentForm, options)) return null;
   const data = options.includeUnchanged
-    ? deepClone(currentForm)
+    ? omitNestedPaths(currentForm, options.ignoreFields || [])
     : diff(initialForm, currentForm, options);
-  validate(data, 'patch', options.validation);
+  runValidation(options.validation, data, { operation: 'patch', phase: 'form' });
   const payload = denormalize(data, mapping, { ...options, operation: 'patch' });
-  return Object.keys(payload).length ? payload : null;
+  if (!Object.keys(payload).length) return null;
+  runValidation(options.validation, payload, { operation: 'patch', phase: 'payload' });
+  return payload;
 }
 
 function buildPostPayload(formData, mapping, options = {}) {
-  const complete = { ...(options.defaults || {}), ...formData };
-  validate(complete, options.operation || 'post', options.validation);
-  return denormalize(complete, mapping, { ...options, operation: options.operation || 'post' });
+  const operation = options.operation || 'post';
+  const complete = deepMerge(options.defaults || {}, formData);
+  runValidation(options.validation, complete, { operation, phase: 'form' });
+  const payload = denormalize(complete, mapping, { ...options, operation });
+  runValidation(options.validation, payload, { operation, phase: 'payload' });
+  return payload;
 }
 
 function buildPutPayload(formData, mapping, options = {}) {
@@ -41,6 +42,7 @@ function buildPutPayload(formData, mapping, options = {}) {
 }
 
 function buildPartialPayload(formData, fields, mapping, options = {}) {
+  const operation = options.operation || 'partial';
   const partial = {};
   for (const field of fields) {
     const value = getNestedValue(formData, field);
@@ -49,7 +51,10 @@ function buildPartialPayload(formData, fields, mapping, options = {}) {
       setNestedValue(partial, field, value);
     }
   }
-  return denormalize(partial, mapping, { ...options, operation: options.operation || 'partial' });
+  runValidation(options.validation, partial, { operation, phase: 'form' });
+  const payload = denormalize(partial, mapping, { ...options, operation });
+  runValidation(options.validation, payload, { operation, phase: 'payload' });
+  return payload;
 }
 
 function createPayloadBuilder(mapping, defaultOptions = {}) {

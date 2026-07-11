@@ -7,9 +7,16 @@
 'use strict';
 
 const { execFileSync } = require('node:child_process');
-const { existsSync, mkdtempSync, rmSync, writeFileSync } = require('node:fs');
+const {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
+const { buildSync } = require('esbuild');
 
 const root = resolve(__dirname, '..');
 const temp = mkdtempSync(join(tmpdir(), 'api-schema-mapper-'));
@@ -46,10 +53,41 @@ if (Mapper !== NamedMapper) process.exit(1);
 const mapper = new Mapper({ apiToForm: { user_name: 'name' } });
 if (mapper.normalize({ user_name: 'Ada' }).name !== 'Ada') process.exit(1);
 `);
+  writeFileSync(join(temp, 'browser-core.js'), `
+import Mapper from 'api-schema-mapper';
+window.mapper = new Mapper({ apiToForm: { user_name: 'name' } });
+`);
+  writeFileSync(join(temp, 'browser-react.js'), `
+import { useMappedForm } from 'api-schema-mapper/react';
+window.useMappedForm = useMappedForm;
+`);
 
   execFileSync(process.execPath, ['common.cjs'], { cwd: temp, stdio: 'inherit' });
   execFileSync(process.execPath, ['module.mjs'], { cwd: temp, stdio: 'inherit' });
-  process.stdout.write('Packed CommonJS and ESM smoke tests passed.\n');
+
+  for (const entry of ['browser-core.js', 'browser-react.js']) {
+    buildSync({
+      absWorkingDir: temp,
+      entryPoints: [entry],
+      outfile: join(temp, `${entry}.bundle.js`),
+      bundle: true,
+      platform: 'browser',
+      external: ['react'],
+      logLevel: 'silent'
+    });
+  }
+
+  const packageRoot = join(temp, 'node_modules', 'api-schema-mapper', 'dist');
+  for (const output of ['index.js', 'react.js', 'zod.js', 'valibot.js']) {
+    const source = readFileSync(join(packageRoot, output), 'utf8');
+    if (/from ["']node:|require\(["']node:/.test(source)) {
+      throw new Error(`${output} contains a browser-incompatible node: import`);
+    }
+  }
+
+  process.stdout.write(
+    'Packed CommonJS, Node ESM, core browser, and React browser smoke tests passed.\n'
+  );
 } finally {
   if (tarball && existsSync(tarball)) rmSync(tarball);
   rmSync(temp, { recursive: true, force: true });

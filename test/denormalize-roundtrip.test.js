@@ -14,6 +14,24 @@ describe('denormalization and round trips', () => {
     expect(form).toEqual(snapshot);
   });
 
+  test.each([
+    [
+      { profile: { contacts: [{ email_address: 'email' }] } },
+      { profile: { contacts: [{ email_address: 'a@x' }] } }
+    ],
+    [
+      { account: { profile: { contacts: [{ email_address: 'email' }] } } },
+      { account: { profile: { contacts: [{ email_address: 'a@x' }] } } }
+    ],
+    [
+      { tenant: { account: { profile: { contacts: [{ email_address: 'email' }] } } } },
+      { tenant: { account: { profile: { contacts: [{ email_address: 'a@x' }] } } } }
+    ]
+  ])('preserves every parent path around nested legacy arrays', (apiToForm, api) => {
+    const mapper = new Mapper({ apiToForm });
+    expect(mapper.denormalize(mapper.normalize(api))).toEqual(api);
+  });
+
   test('uses explicit asymmetric formToApi mapping', () => {
     const mapper = new Mapper({ apiToForm: { user_name: 'name' }, formToApi: { name: 'displayName' } });
     expect(mapper.normalize({ user_name: 'Kshitij' })).toEqual({ name: 'Kshitij' });

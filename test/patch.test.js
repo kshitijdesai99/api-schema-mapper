@@ -42,6 +42,37 @@ describe('diffing and PATCH', () => {
     expect(diff({ name: 'A' }, { name: 'B' }, { ignoreFields: [] })).toEqual({ name: 'B' });
   });
 
+  test('applies ignored paths to hasChanges and includeUnchanged PATCH payloads', () => {
+    const ignored = new Mapper({
+      apiToForm: { name: 'name', audit: 'audit' },
+      options: { ignoreFields: ['audit'] }
+    });
+    expect(ignored.hasChanges(
+      { name: 'A', audit: 1 },
+      { name: 'A', audit: 2 }
+    )).toBe(false);
+    expect(ignored.hasChanges(
+      { name: 'A', audit: 1 },
+      { name: 'B', audit: 2 }
+    )).toBe(true);
+    expect(ignored.buildPatch(
+      { name: 'A', audit: 1 },
+      { name: 'B', audit: 2 },
+      { includeUnchanged: true }
+    )).toEqual({ name: 'B' });
+  });
+
+  test('deleting a parent clears every mapped child field', () => {
+    const nested = new Mapper({ fields: {
+      'profile.name': { to: 'profile.name' },
+      'profile.email': { to: 'profile.email' }
+    } });
+    expect(nested.buildPatch(
+      { profile: { name: 'Ada', email: 'a@x' } },
+      {}
+    )).toEqual({ profile: { name: null, email: null } });
+  });
+
   test('deep equality handles ordering, dates, NaN, undefined, and arrays', () => {
     expect(isEqual({ name: 'K', age: 27 }, { age: 27, name: 'K' })).toBe(true);
     expect(isEqual({ at: new Date(0), value: NaN, missing: undefined }, { missing: undefined, value: NaN, at: new Date(0) })).toBe(true);

@@ -14,6 +14,7 @@ const payloadBuilder = require('./payloadBuilder');
 const utils = require('./utils');
 const errors = require('./errors');
 const adapters = require('./adapters');
+const validation = require('./validation');
 
 module.exports = Mapper;
 Object.assign(module.exports, {
@@ -24,6 +25,7 @@ Object.assign(module.exports, {
   ...payloadBuilder,
   ...errors,
   ...adapters,
+  ...validation,
   utils,
-  version: '2.0.0'
+  version: '2.1.0'
 });

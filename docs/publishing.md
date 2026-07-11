@@ -14,8 +14,9 @@ The gate must pass all of the following:
 
 - behavior-focused Jest suites and 90% global coverage thresholds;
 - TypeScript declaration consumer compilation;
-- generated CommonJS and ESM entry points;
-- an actual `npm pack` tarball installed and executed in a clean temporary project.
+- generated CommonJS and browser-compatible ESM entry points;
+- an actual `npm pack` tarball installed and tested through CommonJS, Node ESM,
+  browser-core, and browser-React consumers.
 
 Inspect the dry-run file list. The package should contain `dist/`, `README.md`, and `LICENSE`; it should not contain source tests, coverage output, or maintainer documents.
 
